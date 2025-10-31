@@ -1,0 +1,56 @@
+# Docker Compose Override File
+# This file allows local customization without modifying base files
+# Docker Compose automatically uses this file when present
+# Rename this file or copy it if you need custom configurations
+
+version: '3.8'
+
+# Override services for local development or specific configurations
+services:
+  # Example: Expose MariaDB port for external access
+  # mariadb-shared:
+  #   ports:
+  #     - "3306:3306"
+
+  # Example: Override PHP-FPM memory limits
+  # php-fpm-shared:
+  #   environment:
+  #     - PHP_MEMORY_LIMIT=512M
+
+  # Example: Add phpMyAdmin for database management
+  # phpmyadmin:
+  #   image: phpmyadmin/phpmyadmin
+  #   container_name: phpmyadmin
+  #   environment:
+  #     PMA_HOST: mariadb-shared
+  #     PMA_USER: root
+  #     PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.phpmyadmin.rule=Host(`phpmyadmin.${BASE_DOMAIN}`)"
+  #     - "traefik.http.routers.phpmyadmin.tls=true"
+  #     - "traefik.http.routers.phpmyadmin.tls.certresolver=letsencrypt"
+  #     - "traefik.http.services.phpmyadmin.loadbalancer.server.port=80"
+  #   depends_on:
+  #     - mariadb-shared
+  #   networks:
+  #     - web
+  #     - internal
+
+  # Example: Add Redis Commander for Redis management
+  # redis-commander:
+  #   image: rediscommander/redis-commander:latest
+  #   container_name: redis-commander
+  #   environment:
+  #     REDIS_HOSTS: local:redis-shared:6379
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.redis-commander.rule=Host(`redis.${BASE_DOMAIN}`)"
+  #     - "traefik.http.routers.redis-commander.tls=true"
+  #     - "traefik.http.routers.redis-commander.tls.certresolver=letsencrypt"
+  #     - "traefik.http.services.redis-commander.loadbalancer.server.port=8081"
+  #   depends_on:
+  #     - redis-shared
+  #   networks:
+  #     - web
+  #     - internal

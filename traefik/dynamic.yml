@@ -1,0 +1,59 @@
+# Dynamic Traefik Configuration
+# This file contains dynamic routing rules and middleware
+
+http:
+  middlewares:
+    # WordPress specific middleware
+    wordpress-auth:
+      basicAuth:
+        users:
+          - "admin:$$2y$$10$$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi"  # password: password
+
+    # ERPNext specific middleware
+    erpnext-auth:
+      basicAuth:
+        users:
+          - "admin:$$2y$$10$$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi"
+
+    # Cache control for static files
+    static-cache:
+      headers:
+        customResponseHeaders:
+          Cache-Control: "public, max-age=31536000"
+
+    # API rate limiting
+    api-rate-limit:
+      rateLimit:
+        burst: 50
+        average: 25
+
+  routers:
+    # Global redirect rules
+    www-redirect:
+      rule: "HostRegexp(`{subdomain:.+}`) && Host(`www.{subdomain}`)"
+      service: "noop@internal"
+      middlewares:
+        - redirect-to-non-www
+
+  middlewares:
+    # Redirect www to non-www
+    redirect-to-non-www:
+      redirectRegex:
+        regex: "^https://www\\.(.+)"
+        replacement: "https://${1}"
+        permanent: true
+
+    # Health check
+    health-check:
+      headers:
+        customResponseHeaders:
+          X-Health-Check: "true"
+
+# TCP services (if needed)
+tcp:
+  services:
+    # Example TCP service
+    example-tcp:
+      loadBalancer:
+        servers:
+          - address: "example.com:8080"
