@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  # Traefik Reverse Proxy - Production Configuration
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    ports:
+      - "80:80"
+      - "443:443"
+      # Dashboard: Remove or restrict access in production
+      # Consider using SSH tunnel: ssh -L 8080:localhost:8080 user@server
+      - "127.0.0.1:8080:8080"  # Dashboard only accessible from localhost
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.prod.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./ssl:/ssl
+      - ./logs/traefik:/var/log/traefik
+    environment:
+      - TRAEFIK_LOG_LEVEL=${TRAEFIK_LOG_LEVEL:-INFO}
+      - EMAIL=${EMAIL}
+    restart: unless-stopped
+    networks:
+      - web
+
+  # Shared MySQL Database (accessible by all clients)
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-app_db}
+      - MYSQL_USER=${MYSQL_USER:-app_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    restart: unless-stopped
+    networks:
+      - web
+    command: --default-authentication-plugin=mysql_native_password
+
+  # phpMyAdmin - MySQL Administration Tool
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: phpmyadmin
+    environment:
+      - PMA_HOST=mysql
+      - PMA_PORT=3306
+      # DO NOT set PMA_USER and PMA_PASSWORD in production - this forces login
+      # Users must enter MySQL credentials manually
+      - UPLOAD_LIMIT=300M
+      - MAX_EXECUTION_TIME=300
+      # Optional: Set absolute URI if using a specific domain
+      # - PMA_ABSOLUTE_URI=https://phpmyadmin.yourdomain.com/
+    volumes:
+      - ./traefik/phpmyadmin/config.user.inc.php:/etc/phpmyadmin/config.user.inc.php:ro
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      # HTTP router (for local development)
+      - "traefik.http.routers.phpmyadmin-http.rule=Host(`phpmyadmin.example.com`)"
+      - "traefik.http.routers.phpmyadmin-http.entrypoints=web"
+      - "traefik.http.routers.phpmyadmin-http.service=phpmyadmin"
+      # HTTPS router (for production)
+      - "traefik.http.routers.phpmyadmin.rule=Host(`phpmyadmin.example.com`)"
+      - "traefik.http.routers.phpmyadmin.entrypoints=websecure"
+      - "traefik.http.routers.phpmyadmin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.phpmyadmin.service=phpmyadmin"
+      # Service definition
+      - "traefik.http.services.phpmyadmin.loadbalancer.server.port=80"
+      # Middlewares
+      - "traefik.http.routers.phpmyadmin.middlewares=security-headers@file,gzip@file"
+      - "traefik.http.routers.phpmyadmin-http.middlewares=security-headers@file,gzip@file"
+
+  # phpLiteAdmin - SQLite Administration Tool
+  phpliteadmin:
+    image: php:8.2-apache
+    container_name: phpliteadmin
+    volumes:
+      - ./phpliteadmin:/var/www/html
+      - ./clients:/var/www/clients:ro  # Read-only access to client SQLite databases
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      # HTTP router (for local development)
+      - "traefik.http.routers.phpliteadmin-http.rule=Host(`phpliteadmin.example.com`)"
+      - "traefik.http.routers.phpliteadmin-http.entrypoints=web"
+      - "traefik.http.routers.phpliteadmin-http.service=phpliteadmin"
+      # HTTPS router (for production)
+      - "traefik.http.routers.phpliteadmin.rule=Host(`phpliteadmin.example.com`)"
+      - "traefik.http.routers.phpliteadmin.entrypoints=websecure"
+      - "traefik.http.routers.phpliteadmin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.phpliteadmin.service=phpliteadmin"
+      # Service definition
+      - "traefik.http.services.phpliteadmin.loadbalancer.server.port=80"
+      # Middlewares
+      - "traefik.http.routers.phpliteadmin.middlewares=security-headers@file,gzip@file"
+      - "traefik.http.routers.phpliteadmin-http.middlewares=security-headers@file,gzip@file"
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  web:
+    name: web
+    external: false
+

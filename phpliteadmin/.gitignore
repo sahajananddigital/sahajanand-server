@@ -1,0 +1,4 @@
+# phpLiteAdmin configuration (contains password)
+phpliteadmin.php
+*.bak
+

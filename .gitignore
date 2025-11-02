@@ -1,11 +1,6 @@
 # Environment files
 .env
 .env.local
-.env.*.local
-
-# Client-specific files
-clients/*/
-!clients/.gitkeep
 
 # SSL certificates
 ssl/
@@ -17,40 +12,14 @@ ssl/
 logs/
 *.log
 
-# Docker volumes data
+# Client data
+clients/*/
+!clients/.gitkeep
+
+# Docker volumes
 *.data
-
-# Backup files
-backups/
-*.sql
-*.sql.gz
-*.tar.gz
-
-# Nginx generated configs (optional - can be tracked or ignored)
-# nginx/conf.d/*.conf
 
 # OS files
 .DS_Store
 Thumbs.db
-*.swp
-*.swo
-*~
 
-# IDE files
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-
-# Temporary files
-*.tmp
-*.bak
-*.backup
-
-# WordPress specific (if tracking clients)
-clients/*/wp-config.php
-clients/*/wp-content/uploads/
-clients/*/wp-content/backups/
-
-# Docker compose override (user-specific)
-docker-compose.override.yml.local

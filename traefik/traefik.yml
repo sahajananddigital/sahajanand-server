@@ -1,18 +1,19 @@
-# Traefik Configuration for Multi-Site WordPress Management
+# Traefik Configuration
 api:
   dashboard: true
-  debug: true
-  insecure: false
+  insecure: true  # Dashboard accessible on port 8080
 
 entryPoints:
   web:
     address: ":80"
-    http:
-      redirections:
-        entrypoint:
-          to: websecure
-          scheme: https
-          permanent: true
+    # HTTP redirection to HTTPS is disabled for local development
+    # Uncomment below to enable automatic HTTPS redirect in production
+    # http:
+    #   redirections:
+    #     entrypoint:
+    #       to: websecure
+    #       scheme: https
+    #       permanent: true
   websecure:
     address: ":443"
 
@@ -28,51 +29,15 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: ${EMAIL}
+      email: ${EMAIL:-admin@example.com}
       storage: /ssl/acme.json
       httpChallenge:
         entryPoint: web
       tlsChallenge: {}
+      # For production, remove caServer line
+      # For testing, uncomment below to use Let's Encrypt staging
+      # caServer: https://acme-staging-v02.api.letsencrypt.org/directory
 
-# Global middleware
-http:
-  middlewares:
-    # Security headers
-    security-headers:
-      headers:
-        customRequestHeaders:
-          X-Forwarded-Proto: "https"
-        customResponseHeaders:
-          X-Frame-Options: "SAMEORIGIN"
-          X-Content-Type-Options: "nosniff"
-          X-XSS-Protection: "1; mode=block"
-          Referrer-Policy: "strict-origin-when-cross-origin"
-          Content-Security-Policy: "default-src 'self' http: https: data: blob: 'unsafe-inline'"
-          Strict-Transport-Security: "max-age=31536000; includeSubDomains"
-
-    # Rate limiting
-    rate-limit:
-      rateLimit:
-        burst: 100
-        average: 50
-
-    # WordPress specific rate limiting
-    wp-rate-limit:
-      rateLimit:
-        burst: 20
-        average: 10
-
-    # Gzip compression
-    gzip:
-      compress: {}
-
-    # Strip prefix for admin areas
-    strip-prefix:
-      stripPrefix:
-        prefixes:
-          - "/wp-admin"
-
-# Logging
 log:
   level: INFO
   filePath: /var/log/traefik/traefik.log
@@ -81,8 +46,3 @@ accessLog:
   filePath: /var/log/traefik/access.log
   format: json
 
-# Metrics
-metrics:
-  prometheus:
-    addEntryPointsLabels: true
-    addServicesLabels: true

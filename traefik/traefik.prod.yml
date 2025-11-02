@@ -1,0 +1,49 @@
+# Traefik Production Configuration
+api:
+  dashboard: true
+  # Secure dashboard with authentication
+  # Uncomment and configure in production
+  # insecure: false
+
+entryPoints:
+  web:
+    address: ":80"
+    # Enable HTTP to HTTPS redirect in production
+    http:
+      redirections:
+        entrypoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: web
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: ${EMAIL}
+      storage: /ssl/acme.json
+      httpChallenge:
+        entryPoint: web
+      tlsChallenge: {}
+      # Production: Use Let's Encrypt staging for testing, then switch to production
+      # caServer: https://acme-staging-v02.api.letsencrypt.org/directory  # For testing
+      # Remove caServer line for production (uses Let's Encrypt production)
+
+log:
+  level: ${TRAEFIK_LOG_LEVEL:-INFO}
+  filePath: /var/log/traefik/traefik.log
+
+accessLog:
+  filePath: /var/log/traefik/access.log
+  format: json
+
