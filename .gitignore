@@ -2,6 +2,9 @@
 .env
 .env.local
 
+# Web UI authentication
+.webui_auth
+
 # SSL certificates
 ssl/
 *.key

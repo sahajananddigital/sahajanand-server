@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # Web UI - Server Management Interface
+  webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webui
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../clients:/var/www/clients
+      - ../mysql:/var/www/mysql
+      - ../backup.sh:/var/www/backup.sh
+      - ..:/var/www/project:ro  # Project root (read-only)
+      - .:/var/www/webui:ro  # Web UI files (includes directory)
+      - ./public:/var/www/html  # Web root
+      - /tmp:/tmp  # For backup directory access
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      # HTTP router (for local development)
+      - "traefik.http.routers.webui-http.rule=Host(`webui.example.com`)"
+      - "traefik.http.routers.webui-http.entrypoints=web"
+      - "traefik.http.routers.webui-http.service=webui"
+      # HTTPS router (for production)
+      - "traefik.http.routers.webui.rule=Host(`webui.example.com`)"
+      - "traefik.http.routers.webui.entrypoints=websecure"
+      - "traefik.http.routers.webui.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.webui.service=webui"
+      # Service definition
+      - "traefik.http.services.webui.loadbalancer.server.port=80"
+      # Middlewares
+      - "traefik.http.routers.webui.middlewares=security-headers@file,gzip@file"
+      - "traefik.http.routers.webui-http.middlewares=security-headers@file,gzip@file"
+
+networks:
+  web:
+    name: web
+    external: true
+

@@ -211,9 +211,63 @@ See **[mysql/README.md](mysql/README.md)** for detailed MySQL documentation.
 
 Each client can use SQLite in their `database/` directory. See `clients/README.md` for details.
 
+## Backups
+
+Automated backup script with rclone integration and zstd compression.
+
+**Quick Start:**
+```bash
+# Local backup only
+./backup.sh
+
+# Upload to rclone remote
+./backup.sh myremote:backups/sahajanand-server
+```
+
+The backup script automatically:
+- Discovers all clients
+- Backs up each client's MySQL database separately
+- Backs up each client's files (including SQLite databases)
+- Compresses with zstd
+- Organizes backups by client in separate directories
+
+See **[BACKUP.md](BACKUP.md)** for complete backup documentation, including restore procedures and automation setup.
+
+## Web UI Management Interface
+
+Modern web-based interface for managing your entire infrastructure.
+
+**Access:**
+- Local: `http://webui.example.com`
+- Production: `https://webui.yourdomain.com`
+
+**Features:**
+- Dashboard with system overview
+- Client management (start, stop, restart containers)
+- Database management (create, view MySQL databases)
+- Backup management (create, restore, download backups)
+- System status (container management, logs)
+
+The Web UI is managed separately with its own docker-compose file. See [webui/README.md](webui/README.md) for setup instructions. Add `webui.example.com` to your `/etc/hosts` for local development.
+
+See **[webui/README.md](webui/README.md)** for detailed documentation.
+
+⚠️ **Security**: The Web UI includes comprehensive security features:
+- **Authentication required** (set up with `webui/setup-auth.sh`)
+- CSRF protection on all endpoints
+- Input validation and sanitization
+- Brute force protection
+- Security headers
+
+See **[webui/SECURITY.md](webui/SECURITY.md)** for complete security documentation.
+
+**Note**: The Web UI has Docker socket access, so authentication is critical!
+
 ## Documentation
 
 - **[PRODUCTION.md](PRODUCTION.md)** - Complete production deployment guide
+- **[BACKUP.md](BACKUP.md)** - Backup and restore documentation
+- **[webui/README.md](webui/README.md)** - Web UI management interface documentation
 - **[ADMIN_TOOLS.md](ADMIN_TOOLS.md)** - phpMyAdmin and phpLiteAdmin documentation
 - **[clients/README.md](clients/README.md)** - Client setup and configuration
 - **[mysql/README.md](mysql/README.md)** - MySQL database documentation
