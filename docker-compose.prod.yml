@@ -43,6 +43,19 @@ services:
       - web
     command: --default-authentication-plugin=mysql_native_password
 
+  # Redis - For ERPNext and other applications that need caching/queues
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - web
+    command: redis-server --appendonly yes
+
   # phpMyAdmin - MySQL Administration Tool
   phpmyadmin:
     image: phpmyadmin/phpmyadmin:latest
@@ -107,6 +120,8 @@ services:
 
 volumes:
   mysql_data:
+    driver: local
+  redis_data:
     driver: local
 
 networks:

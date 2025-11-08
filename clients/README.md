@@ -1,19 +1,23 @@
-# PHP Clients Directory
+# Clients Directory
 
-This directory contains individual PHP client applications, each with their own Dockerfile and container configuration.
+This directory contains individual client applications. Most clients are PHP-based, but other types of applications (like ERPNext) are also supported.
 
 ## Structure
 
 Each client should be placed in its own folder:
 ```
 clients/
-  ├── client1/
+  ├── client1/              # PHP client example
   │   ├── Dockerfile
   │   ├── docker-compose.yml
   │   ├── nginx.conf
   │   ├── .dockerignore
   │   └── [your PHP application files]
-  ├── client2/
+  ├── erpnext/              # ERPNext (Python/Frappe) client
+  │   ├── docker-compose.yml
+  │   ├── README.md
+  │   └── [ERPNext configuration]
+  ├── client2/              # Another PHP client
   │   ├── Dockerfile
   │   ├── docker-compose.yml
   │   ├── nginx.conf
@@ -57,16 +61,28 @@ clients/
    docker-compose -f clients/your-client-name/docker-compose.yml up -d --build
    ```
 
+## Client Types
+
+### PHP Clients (e.g., client1)
+
+- Each PHP client uses PHP 8.2-FPM with Nginx
+- Requires `Dockerfile`, `nginx.conf`, and application files
+- Port 80 is exposed for Nginx (which communicates with PHP-FPM internally)
+- Supervisor manages both Nginx and PHP-FPM processes in the container
+
+### Non-PHP Clients (e.g., ERPNext)
+
+- Can use official Docker images or custom Dockerfiles
+- Configuration depends on the application type
+- See individual client README files for specific setup instructions
+
 ## Notes
 
 - Each client has its own `docker-compose.yml` file for isolated configuration
-- Each client uses PHP 8.2-FPM with Nginx
-- Port 80 is exposed for Nginx (which communicates with PHP-FPM internally)
 - All clients connect to the shared `web` network (created by the main docker-compose.yml) for Traefik routing
 - SSL certificates are automatically provisioned via Let's Encrypt
 - Security headers and gzip compression are applied by default
-- Supervisor manages both Nginx and PHP-FPM processes in the container
-- The main `docker-compose.yml` only contains Traefik; all client services are in their respective folders
+- The main `docker-compose.yml` contains Traefik, MySQL, and Redis; all client services are in their respective folders
 
 ## Database Support
 
@@ -177,6 +193,7 @@ sudo nano /etc/hosts
 Add entries like:
 ```
 127.0.0.1 client1.example.com
+127.0.0.1 erpnext.example.com
 127.0.0.1 client2.example.com
 ```
 

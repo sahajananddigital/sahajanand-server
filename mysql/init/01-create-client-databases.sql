@@ -8,6 +8,12 @@ CREATE USER IF NOT EXISTS 'client1_user'@'%' IDENTIFIED BY 'client1_password';
 GRANT ALL PRIVILEGES ON `client1_db`.* TO 'client1_user'@'%';
 FLUSH PRIVILEGES;
 
+-- ERPNext Database
+CREATE DATABASE IF NOT EXISTS `erpnext_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'erpnext_user'@'%' IDENTIFIED BY 'erpnext_password';
+GRANT ALL PRIVILEGES ON `erpnext_db`.* TO 'erpnext_user'@'%';
+FLUSH PRIVILEGES;
+
 -- Client 2 Database (example - uncomment and modify when adding client2)
 -- CREATE DATABASE IF NOT EXISTS `client2_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 -- CREATE USER IF NOT EXISTS 'client2_user'@'%' IDENTIFIED BY 'client2_password';
