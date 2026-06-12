@@ -36,20 +36,21 @@ The `config.user.inc.php` file is mounted into the phpMyAdmin container and:
 3. **Restart phpMyAdmin:**
 
    ```bash
-   docker-compose -f docker-compose.prod.yml restart phpmyadmin
+   docker-compose restart phpmyadmin
    ```
 
 ## How It Works
 
-### Local Development
-- Uses `docker-compose.yml` (not production config)
-- May have auto-login enabled for convenience
+All configurations are driven by your `.env` file (managed automatically by `setup.sh`):
 
-### Production
-- Uses `docker-compose.prod.yml`
-- **PMA_USER and PMA_PASSWORD are NOT set** - this forces manual login
-- Configuration file enforces cookie authentication
-- Users must enter MySQL username and password
+### Local Development Mode
+- Configured via `setup.sh` (option 2)
+- Automatically sets `PMA_USER=root` and `PMA_PASSWORD` to log in without prompting
+
+### Production Mode
+- Configured via `setup.sh` (option 1)
+- Leaves `PMA_USER` and `PMA_PASSWORD` unset, forcing users to enter their MySQL username and password manually on the login screen
+- Enforces cookie authentication for improved security
 
 ## Login Process
 

@@ -15,12 +15,18 @@
 
 set -euo pipefail
 
-# Configuration
+# Configuration and Defaults
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 CLIENTS_DIR="$PROJECT_ROOT/clients"
 BACKUP_DIR="${BACKUP_DIR:-/tmp/sahajanand-backups}"
-RCLONE_REMOTE="${1:-}"
+
+# Options and Defaults
+CLIENT_FILTER=""
+BACKUP_TYPE="all"
+LOCAL_ONLY=false
+RCLONE_REMOTE=""
+IS_CONTAINER=false
 
 # Colors for output
 RED='\033[0;31m'
@@ -41,14 +47,73 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Help function
+show_help() {
+    echo "Usage: ./backup.sh [options] [rclone-remote:path]"
+    echo ""
+    echo "Options:"
+    echo "  -c, --client NAME      Only backup the specified client"
+    echo "  -t, --type TYPE        Backup type: 'all' (default), 'database', or 'files'"
+    echo "  -l, --local-only       Skip uploading to rclone remote"
+    echo "  -h, --help             Display this help message"
+    echo ""
+    echo "If rclone-remote:path is omitted, it will read RCLONE_REMOTE_PATH from .env"
+}
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -c|--client)
+            CLIENT_FILTER="$2"
+            shift 2
+            ;;
+        -t|--type)
+            BACKUP_TYPE="$2"
+            shift 2
+            ;;
+        -l|--local-only)
+            LOCAL_ONLY=true
+            shift 1
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -*)
+            echo -e "${RED}[ERROR]${NC} Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+        *)
+            RCLONE_REMOTE="$1"
+            shift 1
+            ;;
+    esac
+done
+
 # Check prerequisites
 check_prerequisites() {
     log_info "Checking prerequisites..."
     
-    # Check for rclone
-    if ! command -v rclone &> /dev/null; then
-        log_error "rclone is not installed. Please install it first."
-        exit 1
+    # Check for rclone (only if uploading is required)
+    if [ -n "$RCLONE_REMOTE" ] && [ "$LOCAL_ONLY" = false ]; then
+        if ! command -v rclone &> /dev/null; then
+            log_error "rclone is not installed. Please install it first or run with --local-only."
+            exit 1
+        fi
+        
+        # Check rclone remote
+        local rclone_opts=()
+        if [ -n "${RCLONE_CONFIG_PATH:-}" ]; then
+            rclone_opts+=("--config" "$RCLONE_CONFIG_PATH")
+        fi
+        
+        local remote_name=$(echo "$RCLONE_REMOTE" | cut -d: -f1)
+        # Verify if remote is recognized
+        if ! rclone "${rclone_opts[@]:+${rclone_opts[@]}}" listremotes | grep -q "^${remote_name}:"; then
+            log_warn "rclone remote '${remote_name}' not listed in configured remotes."
+            log_warn "It might be configured dynamically via env variables. Proceeding..."
+        fi
     fi
     
     # Check for zstd
@@ -72,71 +137,110 @@ check_prerequisites() {
         SKIP_DB_BACKUP=false
     fi
     
-    # Check rclone remote if provided
-    if [ -n "$RCLONE_REMOTE" ]; then
-        REMOTE_NAME=$(echo "$RCLONE_REMOTE" | cut -d: -f1)
-        if ! rclone listremotes | grep -q "^${REMOTE_NAME}:"; then
-            log_error "rclone remote '${REMOTE_NAME}' not found."
-            log_info "Configure it with: rclone config"
-            exit 1
-        fi
-    fi
-    
     log_info "Prerequisites check passed."
 }
 
-# Load MySQL root password from .env
-load_mysql_config() {
+# Load environment variables from .env
+load_env() {
     if [ -f "$PROJECT_ROOT/.env" ]; then
-        export $(grep -v '^#' "$PROJECT_ROOT/.env" | grep MYSQL_ROOT_PASSWORD | xargs)
+        log_info "Loading environment from .env file..."
+        # Export env vars, ignoring comments and empty lines
+        while IFS= read -r line || [ -n "$line" ]; do
+            if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "$line" ]]; then
+                continue
+            fi
+            # Use eval or direct export to support value quotes
+            if [[ "$line" =~ ^[[:alpha:]_][[:alnum:]_]*= ]]; then
+                export "$line"
+            fi
+        done < "$PROJECT_ROOT/.env"
     fi
+
+    # Determine if running in Docker
+    if [ -f /.dockerenv ]; then
+        IS_CONTAINER=true
+    else
+        IS_CONTAINER=false
+    fi
+
+    # Dynamically resolve relative/container paths if running on host
+    if [ "$IS_CONTAINER" = false ]; then
+        if [ -n "${RCLONE_CONFIG_GDRIVE_SERVICE_ACCOUNT_FILE:-}" ] && [[ "$RCLONE_CONFIG_GDRIVE_SERVICE_ACCOUNT_FILE" == "/var/www/project/"* ]]; then
+            export RCLONE_CONFIG_GDRIVE_SERVICE_ACCOUNT_FILE="${PROJECT_ROOT}/${RCLONE_CONFIG_GDRIVE_SERVICE_ACCOUNT_FILE#/var/www/project/}"
+        fi
+        if [ -n "${RCLONE_CONFIG_PATH:-}" ] && [[ "$RCLONE_CONFIG_PATH" == "/var/www/project/"* ]]; then
+            export RCLONE_CONFIG_PATH="${PROJECT_ROOT}/${RCLONE_CONFIG_PATH#/var/www/project/}"
+        fi
+    fi
+
     MYSQL_ROOT_PASS="${MYSQL_ROOT_PASSWORD:-rootpassword}"
+
+    # Use remote from env if not specified via argument
+    if [ -z "$RCLONE_REMOTE" ] && [ "$LOCAL_ONLY" = false ]; then
+        RCLONE_REMOTE="${RCLONE_REMOTE_PATH:-}"
+    fi
 }
 
 # Get list of clients
 get_clients() {
     local clients=()
-    for client_dir in "$CLIENTS_DIR"/*/; do
-        if [ -d "$client_dir" ] && [ -f "$client_dir/docker-compose.yml" ]; then
-            local client_name=$(basename "$client_dir")
-            clients+=("$client_name")
+    if [ -n "$CLIENT_FILTER" ]; then
+        if [ -d "$CLIENTS_DIR/$CLIENT_FILTER" ] && [ -f "$CLIENTS_DIR/$CLIENT_FILTER/docker-compose.yml" ]; then
+            clients+=("$CLIENT_FILTER")
+        else
+            log_error "Client '$CLIENT_FILTER' not found in $CLIENTS_DIR or lacks docker-compose.yml"
+            exit 1
         fi
-    done
+    else
+        for client_dir in "$CLIENTS_DIR"/*/; do
+            if [ -d "$client_dir" ] && [ -f "$client_dir/docker-compose.yml" ]; then
+                local client_name=$(basename "$client_dir")
+                clients+=("$client_name")
+            fi
+        done
+    fi
     echo "${clients[@]}"
 }
 
-# Backup MySQL database for a client
-backup_mysql_database() {
+# Backup database (MySQL or SQLite) for a client
+backup_database() {
     local client_name="$1"
-    local backup_file="$2"
-    local db_name="${client_name}_db"
+    local base_backup_path="$2"
     
-    log_info "Backing up MySQL database: $db_name"
-    
-    if [ "$SKIP_DB_BACKUP" = true ]; then
-        log_warn "Skipping MySQL backup (container not running)"
+    # Check if there are SQLite databases in the client folder
+    local client_db_dir="$CLIENTS_DIR/$client_name/database"
+    if [ -d "$client_db_dir" ] && ls "$client_db_dir"/*.db &>/dev/null; then
+        log_info "Backing up SQLite database(s) for client: $client_name"
+        local tar_file="${base_backup_path}.tar"
+        tar -cf "$tar_file" -C "$client_db_dir" .
+        echo "$tar_file"
         return 0
     fi
     
-    # Check if database exists
-    if ! docker exec mysql mysql -u root -p"${MYSQL_ROOT_PASS}" -e "USE \`${db_name}\`;" 2>/dev/null; then
-        log_warn "Database $db_name does not exist. Skipping..."
-        return 0
+    # Fallback to MySQL if SQLite is not used and mysql container is running
+    if [ "${SKIP_DB_BACKUP:-true}" = false ]; then
+        log_info "Backing up MySQL database for client: $client_name"
+        local db_name="${client_name}_db"
+        # Check if database exists
+        if ! docker exec mysql mysql -u root -p"${MYSQL_ROOT_PASS}" -e "USE \`${db_name}\`;" 2>/dev/null; then
+            log_warn "Database $db_name does not exist. Skipping..."
+            return 0
+        fi
+        
+        local sql_file="${base_backup_path}.sql"
+        # Dump database
+        if docker exec mysql mysqldump -u root -p"${MYSQL_ROOT_PASS}" \
+            --single-transaction \
+            --routines \
+            --triggers \
+            --add-drop-database \
+            --databases "${db_name}" > "$sql_file"; then
+            echo "$sql_file"
+            return 0
+        fi
     fi
     
-    # Dump database
-    if docker exec mysql mysqldump -u root -p"${MYSQL_ROOT_PASS}" \
-        --single-transaction \
-        --routines \
-        --triggers \
-        --add-drop-database \
-        --databases "${db_name}" > "$backup_file"; then
-        log_info "MySQL backup created: $backup_file"
-        return 0
-    else
-        log_error "Failed to backup MySQL database: $db_name"
-        return 1
-    fi
+    return 0
 }
 
 # Backup client files
@@ -189,20 +293,26 @@ upload_to_rclone() {
     local client_name="$2"
     local backup_type="$3"  # "database" or "files"
     
-    if [ -z "$RCLONE_REMOTE" ]; then
-        log_warn "No rclone remote specified. Skipping upload."
+    if [ -z "$RCLONE_REMOTE" ] || [ "$LOCAL_ONLY" = true ]; then
+        log_warn "No rclone remote specified or local-only mode. Skipping upload."
         return 0
     fi
     
-    local remote_path="${RCLONE_REMOTE}/${client_name}/${backup_type}/$(basename "$file")"
+    local remote_dir="${RCLONE_REMOTE}/${client_name}/${backup_type}"
+    local rclone_opts=()
+    if [ -n "${RCLONE_CONFIG_PATH:-}" ]; then
+        rclone_opts+=("--config" "$RCLONE_CONFIG_PATH")
+    fi
     
-    log_info "Uploading to rclone: $remote_path"
+    log_info "Uploading to rclone: ${remote_dir}/$(basename "$file")"
     
-    if rclone copy "$file" "${remote_path}" --progress; then
-        log_info "Uploaded successfully: $remote_path"
+    # We use 'rclone copy' to copy the file into the destination directory.
+    # We use POSIX-safe array expansion for older bash versions under 'set -u'.
+    if rclone ${rclone_opts[@]+"${rclone_opts[@]}"} copy "$file" "${remote_dir}" --progress; then
+        log_info "Uploaded successfully: ${remote_dir}/$(basename "$file")"
         return 0
     else
-        log_error "Failed to upload: $remote_path"
+        log_error "Failed to upload: ${remote_dir}/$(basename "$file")"
         return 1
     fi
 }
@@ -216,13 +326,19 @@ backup_client() {
     mkdir -p "$client_backup_dir"
     
     log_info "=========================================="
-    log_info "Backing up client: $client_name"
+    log_info "Backing up client: $client_name (Type: $BACKUP_TYPE)"
     log_info "=========================================="
     
-    # Backup MySQL database
-    local db_backup="${client_backup_dir}/${client_name}_db_${timestamp}.sql"
-    if backup_mysql_database "$client_name" "$db_backup"; then
-        if [ -f "$db_backup" ] && [ -s "$db_backup" ]; then
+    # Backup database (MySQL or SQLite)
+    if [ "$BACKUP_TYPE" = "all" ] || [ "$BACKUP_TYPE" = "database" ]; then
+        local db_backup_base="${client_backup_dir}/${client_name}_db_${timestamp}"
+        # backup_database echoes the actual file created (.sql or .tar)
+        local db_backup=$(backup_database "$client_name" "$db_backup_base" 2>/dev/null || true)
+        
+        # Strip trailing carriage returns or control codes from command output
+        db_backup=$(echo "$db_backup" | tr -d '\r\n')
+        
+        if [ -n "$db_backup" ] && [ -f "$db_backup" ] && [ -s "$db_backup" ]; then
             local compressed_db=$(compress_with_zstd "$db_backup")
             if [ -n "$compressed_db" ]; then
                 upload_to_rclone "$compressed_db" "$client_name" "database"
@@ -231,12 +347,14 @@ backup_client() {
     fi
     
     # Backup client files
-    local files_backup="${client_backup_dir}/${client_name}_files_${timestamp}.tar"
-    if backup_client_files "$client_name" "$files_backup"; then
-        if [ -f "$files_backup" ]; then
-            local compressed_files=$(compress_with_zstd "$files_backup")
-            if [ -n "$compressed_files" ]; then
-                upload_to_rclone "$compressed_files" "$client_name" "files"
+    if [ "$BACKUP_TYPE" = "all" ] || [ "$BACKUP_TYPE" = "files" ]; then
+        local files_backup="${client_backup_dir}/${client_name}_files_${timestamp}.tar"
+        if backup_client_files "$client_name" "$files_backup"; then
+            if [ -f "$files_backup" ]; then
+                local compressed_files=$(compress_with_zstd "$files_backup")
+                if [ -n "$compressed_files" ]; then
+                    upload_to_rclone "$compressed_files" "$client_name" "files"
+                fi
             fi
         fi
     fi
@@ -250,7 +368,7 @@ cleanup_local_backups() {
         log_info "Cleaning up local backup directory..."
         # Keep backups for 7 days locally
         find "$BACKUP_DIR" -type f -name "*.zst" -mtime +7 -delete
-        find "$BACKUP_DIR" -type d -empty -delete
+        find "$BACKUP_DIR" -type d -empty -delete 2>/dev/null || true
     fi
 }
 
@@ -261,17 +379,17 @@ main() {
     log_info "=========================================="
     log_info "Started at: $(date)"
     
+    # Load env variables from .env
+    load_env
+    
     # Check prerequisites
     check_prerequisites
-    
-    # Load MySQL configuration
-    load_mysql_config
     
     # Get list of clients
     local clients=($(get_clients))
     
     if [ ${#clients[@]} -eq 0 ]; then
-        log_warn "No clients found in $CLIENTS_DIR"
+        log_warn "No clients found to back up."
         exit 0
     fi
     
@@ -292,8 +410,8 @@ main() {
     log_info "All backups completed!"
     log_info "Finished at: $(date)"
     
-    if [ -n "$RCLONE_REMOTE" ]; then
-        log_info "Backups uploaded to: $RCLONE_REMOTE"
+    if [ -n "$RCLONE_REMOTE" ] && [ "$LOCAL_ONLY" = false ]; then
+        log_info "Backups uploaded to rclone: $RCLONE_REMOTE"
     else
         log_info "Local backups stored in: $BACKUP_DIR"
     fi

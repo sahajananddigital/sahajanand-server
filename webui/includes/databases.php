@@ -1,17 +1,26 @@
 <?php
 $databases = get_client_databases();
 $clients = get_clients();
+
+// Multi-tenant filtering
+$user_client = get_user_client();
+if ($user_client !== null) {
+    $databases = array_filter($databases, fn($db) => $db['client'] === $user_client);
+    $clients = array_filter($clients, fn($c) => $c['name'] === $user_client);
+}
 ?>
 
 <div x-data="databaseManager()">
     <div class="mb-8 flex justify-between items-center">
         <div>
             <h2 class="text-3xl font-bold text-gray-800">Databases</h2>
-            <p class="text-gray-600 mt-2">Manage MySQL databases for clients</p>
+            <p class="text-gray-600 mt-2">Manage SQLite databases for clients</p>
         </div>
+        <?php if (is_admin()): ?>
         <button @click="showCreateModal = true" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
             <i class="fas fa-plus mr-2"></i> Create Database
         </button>
+        <?php endif; ?>
     </div>
 
     <!-- Databases List -->
@@ -57,9 +66,11 @@ $clients = get_clients();
                                         <a href="?page=backups&type=database&client=<?= urlencode($db['client']) ?>" class="text-purple-600 hover:text-purple-800" title="View Backups">
                                             <i class="fas fa-list"></i>
                                         </a>
-                                        <button @click="deleteDatabase('<?= $db['name'] ?>', '<?= $db['client'] ?>')" class="text-red-600 hover:text-red-800" title="Delete" onclick="return confirm('Are you sure? This cannot be undone!')">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
+                                         <?php if (is_admin()): ?>
+                                         <button @click="deleteDatabase('<?= $db['name'] ?>', '<?= $db['client'] ?>')" class="text-red-600 hover:text-red-800" title="Delete" onclick="return confirm('Are you sure? This cannot be undone!')">
+                                             <i class="fas fa-trash"></i>
+                                         </button>
+                                         <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>
@@ -72,37 +83,42 @@ $clients = get_clients();
     </div>
 
     <!-- Create Database Modal -->
-    <div x-show="showCreateModal" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg p-6 w-96" @click.away="showCreateModal = false">
-            <h3 class="text-xl font-bold mb-4">Create Database</h3>
+    <div x-show="showCreateModal" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md" @click.away="showCreateModal = false">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold flex items-center text-indigo-400">
+                    <i class="fas fa-database mr-2 text-indigo-500"></i> Create SQLite Database
+                </h3>
+                <button @click="showCreateModal = false" class="text-gray-400 hover:text-gray-200">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
             <form @submit.prevent="createDatabase()">
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Client</label>
-                    <select x-model="selectedClient" class="w-full border rounded-lg px-3 py-2" required>
-                        <option value="">Choose a client...</option>
-                        <?php foreach ($clients as $client): ?>
-                            <?php
-                            $has_db = false;
-                            foreach ($databases as $db) {
-                                if ($db['client'] === $client['name']) {
-                                    $has_db = true;
-                                    break;
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1.5 font-semibold">Select Client</label>
+                        <select x-model="selectedClient" class="w-full px-3 py-2 text-sm" required>
+                            <option value="">Choose a client...</option>
+                            <?php foreach ($clients as $client): ?>
+                                <?php
+                                $has_db = false;
+                                foreach ($databases as $db) {
+                                    if ($db['client'] === $client['name']) {
+                                        $has_db = true;
+                                        break;
+                                    }
                                 }
-                            }
-                            ?>
-                            <?php if (!$has_db): ?>
-                                <option value="<?= htmlspecialchars($client['name']) ?>"><?= htmlspecialchars($client['name']) ?></option>
-                            <?php endif; ?>
-                        <?php endforeach; ?>
-                    </select>
+                                ?>
+                                <?php if (!$has_db): ?>
+                                    <option value="<?= htmlspecialchars($client['name']) ?>"><?= htmlspecialchars($client['name']) ?></option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                 </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Password (optional)</label>
-                    <input type="password" x-model="password" class="w-full border rounded-lg px-3 py-2" placeholder="Leave blank for default">
-                </div>
-                <div class="flex gap-2">
-                    <button type="submit" class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-                        Create
+                <div class="flex gap-3 mt-6 border-t border-gray-800 pt-4">
+                    <button type="submit" class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium">
+                        Create Database
                     </button>
                     <button type="button" @click="showCreateModal = false" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">
                         Cancel

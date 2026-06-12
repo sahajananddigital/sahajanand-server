@@ -131,37 +131,31 @@ function get_container_status($container_name) {
 }
 
 /**
- * Get MySQL databases for clients
+ * Get SQLite databases for clients
  */
 function get_client_databases() {
     $databases = [];
     $clients = get_clients();
     
-    // Get MySQL root password
-    $mysql_root_pass = get_mysql_root_password();
-    
     foreach ($clients as $client) {
-        $db_name = $client['name'] . '_db';
-        // Escape database name for SQL query
-        $db_name_escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], $db_name);
-        $result = exec_command("docker exec mysql mysql -u root -p" . escape_shell_arg($mysql_root_pass) . " -e 'SHOW DATABASES LIKE \\\"{$db_name_escaped}\\\";' 2>/dev/null");
-        
-        if ($result['success'] && strpos($result['output'], $db_name) !== false) {
-            // Get database size
-            $size_result = exec_command("docker exec mysql mysql -u root -p" . escape_shell_arg($mysql_root_pass) . " -e 'SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS \"DB Size in MB\" FROM information_schema.tables WHERE table_schema = \\\"{$db_name_escaped}\\\";' 2>/dev/null");
-            $size = 0;
-            if ($size_result['success']) {
-                preg_match('/\d+\.?\d*/', $size_result['output'], $matches);
-                $size = $matches[0] ?? 0;
+        $db_dir = $client['path'] . '/database';
+        if (is_dir($db_dir)) {
+            // Find all .db, .sqlite, or .sqlite3 files
+            $files = glob($db_dir . '/*.{db,sqlite,sqlite3}', GLOB_BRACE);
+            if (!empty($files)) {
+                foreach ($files as $file) {
+                    if (is_file($file)) {
+                        $databases[] = [
+                            'name' => basename($file),
+                            'client' => $client['name'],
+                            'username' => 'SQLite (File)',
+                            'size_mb' => round(filesize($file) / 1024 / 1024, 3),
+                            'path' => $file,
+                            'exists' => true
+                        ];
+                    }
+                }
             }
-            
-            $databases[] = [
-                'name' => $db_name,
-                'client' => $client['name'],
-                'username' => $client['name'] . '_user',
-                'size_mb' => floatval($size),
-                'exists' => true
-            ];
         }
     }
     

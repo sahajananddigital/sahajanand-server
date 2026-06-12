@@ -41,7 +41,142 @@ if ($method === 'POST') {
     
     // Prevent path traversal
     $name = basename($name);
-    // Use realpath to ensure no directory traversal
+    
+    // Multi-tenant authorization check
+    $user_client = get_user_client();
+    if ($user_client !== null && $name !== $user_client) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Unauthorized client access']);
+        exit;
+    }
+    
+    // Handle Client Creation
+    if ($action === 'create') {
+        if (!is_admin()) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Forbidden: Administrator privileges required to deploy clients']);
+            exit;
+        }
+        $template = sanitize_input($input['template'] ?? 'wordpress');
+        $domain = sanitize_input($input['domain'] ?? '');
+        $create_db = filter_var($input['create_db'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $db_password = $input['db_password'] ?? '';
+        
+        $allowed_templates = ['wordpress', 'erpnext', 'postiz'];
+        if (!in_array($template, $allowed_templates)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Invalid template name']);
+            exit;
+        }
+        
+        if (empty($domain)) {
+            $base_domain = get_env_var('BASE_DOMAIN', 'localhost');
+            $domain = $name . '.' . $base_domain;
+        }
+        
+        if (!preg_match('/^[a-zA-Z0-9.-]+$/', $domain)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Invalid domain format']);
+            exit;
+        }
+        
+        $target_dir = CLIENTS_DIR . '/' . $name;
+        if (file_exists($target_dir)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'A client directory with this name already exists']);
+            exit;
+        }
+        
+        $template_dir = CLIENTS_DIR . '/' . $template;
+        if (!file_exists($template_dir) || !is_dir($template_dir)) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Template directory not found']);
+            exit;
+        }
+        
+        if (!mkdir($target_dir, 0755, true)) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'message' => 'Failed to create client directory']);
+            exit;
+        }
+        
+        // Copy directory helper
+        $copy_dir = function($src, $dst) use (&$copy_dir) {
+            $dir = opendir($src);
+            @mkdir($dst, 0755, true);
+            while (($file = readdir($dir)) !== false) {
+                if ($file === '.' || $file === '..') {
+                    continue;
+                }
+                if (is_dir($src . '/' . $file)) {
+                    $copy_dir($src . '/' . $file, $dst . '/' . $file);
+                } else {
+                    copy($src . '/' . $file, $dst . '/' . $file);
+                }
+            }
+            closedir($dir);
+        };
+        
+        $copy_dir($template_dir, $target_dir);
+        
+        if (file_exists($target_dir . '/supervisord.log')) {
+            @unlink($target_dir . '/supervisord.log');
+        }
+        
+        $compose_file = $target_dir . '/docker-compose.yml';
+        if (file_exists($compose_file)) {
+            $content = file_get_contents($compose_file);
+            
+            $template_domain = $template . '.example.com';
+            $content = str_replace($template_domain, $domain, $content);
+            $content = str_replace($template, $name, $content);
+            
+            if ($template === 'postiz') {
+                if (empty($db_password)) {
+                    $db_password = bin2hex(random_bytes(10));
+                }
+                $content = str_replace('postiz_secure_password', $db_password, $content);
+            }
+            
+            if ($template === 'erpnext') {
+                if (empty($db_password)) {
+                    $db_password = bin2hex(random_bytes(10));
+                }
+                $content = str_replace('erpnext_password', $db_password, $content);
+            }
+            
+            file_put_contents($compose_file, $content);
+        }
+        
+        if ($create_db) {
+            $db_dir = $target_dir . '/database';
+            if (!is_dir($db_dir)) {
+                @mkdir($db_dir, 0775, true);
+            }
+            $db_path = $db_dir . '/' . $name . '.db';
+            try {
+                $db = new PDO('sqlite:' . $db_path);
+                $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                $db->exec("CREATE TABLE IF NOT EXISTS _metadata (key TEXT PRIMARY KEY, value TEXT)");
+                $db->exec("INSERT OR IGNORE INTO _metadata (key, value) VALUES ('created_at', '" . date('Y-m-d H:i:s') . "')");
+                $db = null; // Close connection
+                @chmod($db_path, 0666);
+                @chmod($db_dir, 0777);
+            } catch (PDOException $e) {
+                error_log("WebUI: Failed to initialize SQLite DB at client deploy: " . $e->getMessage());
+            }
+        }
+        
+        $result = exec_command("cd " . escape_shell_arg($target_dir) . " && docker-compose up -d --build");
+        
+        echo json_encode([
+            'success' => $result['success'],
+            'message' => $result['success'] ? 'Client created and started successfully' : 'Client files initialized, but container build failed'
+        ]);
+        exit;
+    }
+    
+    // For start/stop/restart operations, locate client
     $client_dir = CLIENTS_DIR . '/' . $name;
     $real_client_dir = realpath($client_dir);
     if (!$real_client_dir || strpos($real_client_dir, realpath(CLIENTS_DIR)) !== 0) {
@@ -96,4 +231,5 @@ if ($method === 'POST') {
 } else {
     echo json_encode(['success' => false, 'message' => 'Method not allowed']);
 }
+
 

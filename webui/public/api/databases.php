@@ -31,10 +31,16 @@ if ($method === 'POST') {
         exit;
     }
     
+    // Require admin access for database operations
+    if (!is_admin()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Forbidden: Administrator privileges required']);
+        exit;
+    }
+    
     switch ($action) {
         case 'create':
             $client = sanitize_input($input['client'] ?? '');
-            $password = $input['password'] ?? ''; // Don't sanitize password, will be escaped in command
             
             if (empty($client) || !validate_client_name($client)) {
                 http_response_code(400);
@@ -44,29 +50,47 @@ if ($method === 'POST') {
             
             // Prevent path traversal
             $client = basename($client);
-            $script = MYSQL_DIR . '/add-client-db.sh';
-            if (!file_exists($script)) {
+            $client_dir = CLIENTS_DIR . '/' . $client;
+            
+            if (!file_exists($client_dir) || !is_dir($client_dir)) {
                 http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'Database creation script not found']);
+                echo json_encode(['success' => false, 'message' => 'Client directory not found']);
                 exit;
             }
             
-            $cmd = "bash " . escape_shell_arg($script) . " " . escape_shell_arg($client);
-            if (!empty($password)) {
-                // Validate password (alphanumeric and special chars, max 100 chars)
-                if (strlen($password) > 100 || !preg_match('/^[a-zA-Z0-9@#$%^&*()_+\-=\[\]{};\':"\\|,.<>\/?~`]+$/', $password)) {
-                    http_response_code(400);
-                    echo json_encode(['success' => false, 'message' => 'Invalid password format']);
+            $db_dir = $client_dir . '/database';
+            if (!is_dir($db_dir)) {
+                if (!mkdir($db_dir, 0775, true)) {
+                    http_response_code(500);
+                    echo json_encode(['success' => false, 'message' => 'Failed to create database directory']);
                     exit;
                 }
-                $cmd .= " " . escape_shell_arg($password);
             }
             
-            $result = exec_command($cmd, PROJECT_ROOT);
-            echo json_encode([
-                'success' => $result['success'],
-                'message' => $result['success'] ? 'Database created successfully' : 'Failed to create database'
-            ]);
+            $db_name = $client . '.db';
+            $db_path = $db_dir . '/' . $db_name;
+            
+            if (file_exists($db_path)) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'Database file already exists']);
+                exit;
+            }
+            
+            try {
+                $db = new PDO('sqlite:' . $db_path);
+                $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                $db->exec("CREATE TABLE IF NOT EXISTS _metadata (key TEXT PRIMARY KEY, value TEXT)");
+                $db->exec("INSERT OR IGNORE INTO _metadata (key, value) VALUES ('created_at', '" . date('Y-m-d H:i:s') . "')");
+                $db = null; // Close connection
+                
+                @chmod($db_path, 0666);
+                @chmod($db_dir, 0777);
+                
+                echo json_encode(['success' => true, 'message' => 'SQLite database created successfully']);
+            } catch (PDOException $e) {
+                http_response_code(500);
+                echo json_encode(['success' => false, 'message' => 'Failed to initialize SQLite database: ' . $e->getMessage()]);
+            }
             break;
             
         case 'delete':
@@ -79,27 +103,31 @@ if ($method === 'POST') {
                 exit;
             }
             
-            // Validate database name format (should be clientname_db)
-            if (!preg_match('/^[a-zA-Z0-9_]+$/', $name) || !validate_client_name($client_name)) {
+            if (!validate_client_name($client_name) || !preg_match('/^[a-zA-Z0-9._-]+$/', $name)) {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'message' => 'Invalid database or client name']);
                 exit;
             }
             
-            // Load MySQL root password
-            $mysql_root_pass = get_mysql_root_password();
+            $client_name = basename($client_name);
+            $name = basename($name);
             
-            // Escape database and username for SQL (already validated, but be extra safe)
-            // Use backticks for database name and quotes for username
-            $db_name_sql = '`' . str_replace('`', '``', $name) . '`';
-            $user_name_sql = "'" . str_replace("'", "''", $client_name . '_user') . "'";
-            $sql = "DROP DATABASE IF EXISTS {$db_name_sql}; DROP USER IF EXISTS {$user_name_sql}@'%';";
-            $result = exec_command("docker exec mysql mysql -u root -p" . escape_shell_arg($mysql_root_pass) . " -e " . escape_shell_arg($sql));
+            $db_path = CLIENTS_DIR . '/' . $client_name . '/database/' . $name;
+            $real_db_path = realpath($db_path);
+            $real_clients_dir = realpath(CLIENTS_DIR);
             
-            echo json_encode([
-                'success' => $result['success'],
-                'message' => $result['success'] ? 'Database deleted successfully' : 'Failed to delete database'
-            ]);
+            if (!$real_db_path || strpos($real_db_path, $real_clients_dir) !== 0 || !is_file($real_db_path)) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Invalid database path or file not found']);
+                exit;
+            }
+            
+            if (unlink($real_db_path)) {
+                echo json_encode(['success' => true, 'message' => 'SQLite database deleted successfully']);
+            } else {
+                http_response_code(500);
+                echo json_encode(['success' => false, 'message' => 'Failed to delete database file']);
+            }
             break;
             
         default:

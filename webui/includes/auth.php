@@ -32,6 +32,76 @@ function validate_csrf_token($token) {
     return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
 }
 
+// Connect to SQLite Database and ensure tables exist
+function get_db() {
+    static $db = null;
+    if ($db !== null) {
+        return $db;
+    }
+    
+    $db_file = DB_FILE;
+    $db_dir = dirname($db_file);
+    if (!is_dir($db_dir)) {
+        @mkdir($db_dir, 0755, true);
+    }
+    
+    try {
+        $db = new PDO('sqlite:' . $db_file);
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        
+        // Create tables
+        $db->exec("CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password_hash TEXT,
+            role TEXT,
+            client_name TEXT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
+        
+        // Seed default user if empty
+        $stmt = $db->query("SELECT COUNT(*) FROM users");
+        $count = $stmt->fetchColumn();
+        if ($count == 0) {
+            $default_user = 'admin';
+            $default_hash = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'; // admin123
+            
+            $auth_file = PROJECT_ROOT . '/.webui_auth';
+            if (file_exists($auth_file)) {
+                $lines = file($auth_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                foreach ($lines as $line) {
+                    if (strpos($line, 'WEBUI_USERNAME=') === 0) {
+                        $default_user = trim(substr($line, 15));
+                    } elseif (strpos($line, 'WEBUI_PASSWORD_HASH=') === 0) {
+                        $default_hash = trim(substr($line, 20));
+                    }
+                }
+            } else {
+                // Try .env
+                $env_file = PROJECT_ROOT . '/.env';
+                if (file_exists($env_file)) {
+                    $lines = file($env_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                    foreach ($lines as $line) {
+                        if (strpos($line, 'WEBUI_USERNAME=') === 0) {
+                            $default_user = trim(substr($line, 15));
+                        } elseif (strpos($line, 'WEBUI_PASSWORD_HASH=') === 0) {
+                            $default_hash = trim(substr($line, 20));
+                        }
+                    }
+                }
+            }
+            
+            $stmt = $db->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')");
+            $stmt->execute([$default_user, $default_hash]);
+        }
+    } catch (PDOException $e) {
+        error_log("WebUI: SQLite authentication DB initialization failed: " . $e->getMessage());
+        return null;
+    }
+    
+    return $db;
+}
+
 // Check if user is authenticated
 function is_authenticated() {
     return isset($_SESSION['authenticated']) && $_SESSION['authenticated'] === true && 
@@ -39,48 +109,21 @@ function is_authenticated() {
            isset($_SESSION['ip']) && $_SESSION['ip'] === $_SERVER['REMOTE_ADDR'];
 }
 
+// Check if user is administrator
+function is_admin() {
+    return is_authenticated() && isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
+}
+
+// Get client name linked to user (returns null for admins)
+function get_user_client() {
+    return is_authenticated() ? ($_SESSION['client_name'] ?? null) : null;
+}
+
 // Login function
 function login($username, $password) {
-    // Load credentials from environment or config
-    $config_file = PROJECT_ROOT . '/.env';
-    $auth_file = PROJECT_ROOT . '/.webui_auth';
-    
-    $stored_hash = null;
-    $stored_username = null;
-    
-    // Try to load from .webui_auth file (preferred)
-    if (file_exists($auth_file)) {
-        $lines = file($auth_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        foreach ($lines as $line) {
-            if (strpos($line, 'WEBUI_USERNAME=') === 0) {
-                $stored_username = trim(substr($line, 15));
-            } elseif (strpos($line, 'WEBUI_PASSWORD_HASH=') === 0) {
-                $stored_hash = trim(substr($line, 20));
-            }
-        }
-    }
-    
-    // Fallback to .env file
-    if (!$stored_username || !$stored_hash) {
-        if (file_exists($config_file)) {
-            $lines = file($config_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-            foreach ($lines as $line) {
-                if (strpos($line, 'WEBUI_USERNAME=') === 0) {
-                    $stored_username = trim(substr($line, 15));
-                } elseif (strpos($line, 'WEBUI_PASSWORD_HASH=') === 0) {
-                    $stored_hash = trim(substr($line, 20));
-                }
-            }
-        }
-    }
-    
-    // Default credentials (CHANGE THESE!)
-    if (!$stored_username) {
-        $stored_username = 'admin';
-    }
-    if (!$stored_hash) {
-        // Default password: admin123 (CHANGE THIS!)
-        $stored_hash = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+    $db = get_db();
+    if (!$db) {
+        return ['success' => false, 'message' => 'Database connection failed.'];
     }
     
     // Rate limiting - check failed attempts
@@ -104,37 +147,42 @@ function login($username, $password) {
         return ['success' => false, 'message' => 'Too many failed login attempts. Please try again in 15 minutes.'];
     }
     
-    // Verify credentials
-    if ($username === $stored_username && password_verify($password, $stored_hash)) {
-        // Successful login
-        $_SESSION['authenticated'] = true;
-        $_SESSION['user'] = $username;
-        $_SESSION['ip'] = $_SERVER['REMOTE_ADDR'];
-        $_SESSION['login_time'] = time();
+    // Verify credentials against DB
+    try {
+        $stmt = $db->prepare("SELECT * FROM users WHERE username = ?");
+        $stmt->execute([$username]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        // Clear failed attempts
-        if (file_exists($attempts_file)) {
-            unlink($attempts_file);
+        if ($user && password_verify($password, $user['password_hash'])) {
+            // Successful login
+            $_SESSION['authenticated'] = true;
+            $_SESSION['user'] = $user['username'];
+            $_SESSION['role'] = $user['role'];
+            $_SESSION['client_name'] = $user['client_name'];
+            $_SESSION['ip'] = $_SERVER['REMOTE_ADDR'];
+            $_SESSION['login_time'] = time();
+            
+            // Clear failed attempts
+            if (file_exists($attempts_file)) {
+                @unlink($attempts_file);
+            }
+            
+            error_log("WebUI: Successful login from " . $_SERVER['REMOTE_ADDR'] . " as " . $username . " (" . $user['role'] . ")");
+            return ['success' => true];
         }
-        
-        // Log successful login
-        error_log("WebUI: Successful login from " . $_SERVER['REMOTE_ADDR'] . " as " . $username);
-        
-        return ['success' => true];
-    } else {
-        // Failed login - increment attempts
-        $attempts++;
-        file_put_contents($attempts_file, json_encode([
-            'attempts' => $attempts,
-            'last_attempt' => time()
-        ]));
-        
-        // Log failed login attempt
-        error_log("WebUI: Failed login attempt from " . $_SERVER['REMOTE_ADDR'] . " for user " . $username);
-        
-        // Don't reveal which part failed
-        return ['success' => false, 'message' => 'Invalid username or password.'];
+    } catch (PDOException $e) {
+        error_log("WebUI: Login query failed: " . $e->getMessage());
     }
+    
+    // Failed login - increment attempts
+    $attempts++;
+    file_put_contents($attempts_file, json_encode([
+        'attempts' => $attempts,
+        'last_attempt' => time()
+    ]));
+    
+    error_log("WebUI: Failed login attempt from " . $_SERVER['REMOTE_ADDR'] . " for user " . $username);
+    return ['success' => false, 'message' => 'Invalid username or password.'];
 }
 
 // Logout function
@@ -151,6 +199,16 @@ function require_auth() {
             header('Location: /login.php');
             exit;
         }
+    }
+}
+
+// Require administrator access
+function require_admin() {
+    require_auth();
+    if (!is_admin()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Forbidden: Administrator privileges required']);
+        exit;
     }
 }
 

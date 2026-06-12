@@ -1,7 +1,16 @@
 <?php
-$client_filter = $_GET['client'] ?? null;
+$user_client = get_user_client();
+if ($user_client !== null) {
+    $client_filter = $user_client;
+} else {
+    $client_filter = $_GET['client'] ?? null;
+}
 $backups = get_backups($client_filter);
 $clients = get_clients();
+
+if ($user_client !== null) {
+    $clients = array_filter($clients, fn($c) => $c['name'] === $user_client);
+}
 ?>
 
 <div x-data="backupManager()">
@@ -11,6 +20,7 @@ $clients = get_clients();
             <p class="text-gray-600 mt-2">Manage database and file backups</p>
         </div>
         <div class="flex gap-2">
+            <?php if (is_admin()): ?>
             <select x-model="selectedClient" @change="filterByClient()" class="border rounded-lg px-3 py-2">
                 <option value="">All Clients</option>
                 <?php foreach ($clients as $client): ?>
@@ -19,6 +29,7 @@ $clients = get_clients();
                     </option>
                 <?php endforeach; ?>
             </select>
+            <?php endif; ?>
             <button @click="createBackup()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
                 <i class="fas fa-plus mr-2"></i> Create Backup
             </button>
@@ -26,29 +37,47 @@ $clients = get_clients();
     </div>
 
     <!-- Create Backup Modal -->
-    <div x-show="showBackupModal" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg p-6 w-96" @click.away="showBackupModal = false">
-            <h3 class="text-xl font-bold mb-4">Create Backup</h3>
+    <div x-show="showBackupModal" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md" @click.away="showBackupModal = false">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold flex items-center text-indigo-400">
+                    <i class="fas fa-shield-alt mr-2 text-indigo-500"></i> Create New Backup
+                </h3>
+                <button @click="showBackupModal = false" class="text-gray-400 hover:text-gray-200">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
             <form @submit.prevent="submitBackup()">
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Client</label>
-                    <select x-model="backupClient" class="w-full border rounded-lg px-3 py-2" required>
-                        <option value="">Choose a client...</option>
-                        <?php foreach ($clients as $client): ?>
-                            <option value="<?= htmlspecialchars($client['name']) ?>"><?= htmlspecialchars($client['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                <div class="space-y-4">
+                    <?php if (is_admin()): ?>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1.5 font-semibold">Select Client</label>
+                        <select x-model="backupClient" class="w-full px-3 py-2 text-sm" required>
+                            <option value="">Choose a client...</option>
+                            <?php foreach ($clients as $client): ?>
+                                <option value="<?= htmlspecialchars($client['name']) ?>"><?= htmlspecialchars($client['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <?php else: ?>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1.5 font-semibold">Client</label>
+                        <div class="px-3 py-2 bg-gray-900/50 rounded-lg text-slate-300 text-sm border border-gray-800">
+                            <?= htmlspecialchars($user_client) ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1.5 font-semibold">Backup Type</label>
+                        <select x-model="backupType" class="w-full px-3 py-2 text-sm" required>
+                            <option value="all">All (Database + Files)</option>
+                            <option value="database">Database Only</option>
+                            <option value="files">Files Only</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Backup Type</label>
-                    <select x-model="backupType" class="w-full border rounded-lg px-3 py-2" required>
-                        <option value="all">All (Database + Files)</option>
-                        <option value="database">Database Only</option>
-                        <option value="files">Files Only</option>
-                    </select>
-                </div>
-                <div class="flex gap-2">
-                    <button type="submit" class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                <div class="flex gap-3 mt-6 border-t border-gray-800 pt-4">
+                    <button type="submit" class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium">
                         Create Backup
                     </button>
                     <button type="button" @click="showBackupModal = false" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">
@@ -111,9 +140,11 @@ $clients = get_clients();
                                         <button @click="restoreBackup('<?= $backup['client'] ?>', '<?= htmlspecialchars($backup['path'], ENT_QUOTES) ?>', '<?= $backup['type'] ?>')" class="text-green-600 hover:text-green-800" title="Restore">
                                             <i class="fas fa-upload"></i>
                                         </button>
-                                        <button @click="deleteBackup('<?= htmlspecialchars($backup['path'], ENT_QUOTES) ?>')" class="text-red-600 hover:text-red-800" title="Delete" onclick="return confirm('Are you sure?')">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
+                                         <?php if (is_admin()): ?>
+                                         <button @click="deleteBackup('<?= htmlspecialchars($backup['path'], ENT_QUOTES) ?>')" class="text-red-600 hover:text-red-800" title="Delete" onclick="return confirm('Are you sure?')">
+                                             <i class="fas fa-trash"></i>
+                                         </button>
+                                         <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>
@@ -131,7 +162,7 @@ function backupManager() {
     return {
         showBackupModal: false,
         selectedClient: '<?= htmlspecialchars($client_filter ?? '') ?>',
-        backupClient: '',
+        backupClient: '<?= htmlspecialchars($user_client ?? '') ?>',
         backupType: 'all',
         
         filterByClient() {

@@ -19,11 +19,11 @@ docker-compose up -d
 
 ### Login Credentials
 
-**Local Development (`docker-compose.yml`):**
+**Local Development Mode:**
 - May auto-login or prompt for credentials
-- Uses environment variables `PMA_USER` and `PMA_PASSWORD` if set
+- Uses environment variables `PMA_USER` and `PMA_PASSWORD` automatically when running in dev mode
 
-**Production (`docker-compose.prod.yml`):**
+**Production Mode:**
 - **ALWAYS requires manual MySQL login** - no auto-login
 - You must enter MySQL username and password on the login page
 - Available users:
@@ -137,16 +137,11 @@ Or manually:
 
 ### Update Domains
 
-Edit `docker-compose.yml` or `docker-compose.prod.yml` and update the Traefik labels:
+Update your domain variables in `.env` (or run `setup.sh` to configure interactively):
 
-**phpMyAdmin:**
-```yaml
-- "traefik.http.routers.phpmyadmin.rule=Host(`phpmyadmin.yourdomain.com`)"
-```
-
-**phpLiteAdmin:**
-```yaml
-- "traefik.http.routers.phpliteadmin.rule=Host(`phpliteadmin.yourdomain.com`)"
+```env
+PHPMYADMIN_HOST=phpmyadmin.yourdomain.com
+PHPLITEADMIN_HOST=phpliteadmin.yourdomain.com
 ```
 
 ### DNS Configuration

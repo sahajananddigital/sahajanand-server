@@ -75,9 +75,9 @@ See **[PRODUCTION.md](PRODUCTION.md)** for complete production deployment guide.
    nano .env  # Set EMAIL=your-email@domain.com
    ```
 
-2. **Start with production config:**
+2. **Start the Infrastructure:**
    ```bash
-   docker-compose -f docker-compose.prod.yml --env-file .env up -d
+   docker-compose up -d
    ```
 
 3. **Update client domains** in each client's `docker-compose.yml`
@@ -93,8 +93,7 @@ See **[PRODUCTION.md](PRODUCTION.md)** for complete production deployment guide.
 
 ```
 .
-├── docker-compose.yml          # Local development config
-├── docker-compose.prod.yml     # Production config
+├── docker-compose.yml          # Unified Docker Compose config
 ├── traefik/
 │   ├── traefik.yml            # Local Traefik config
 │   ├── traefik.prod.yml       # Production Traefik config
@@ -118,14 +117,19 @@ See **[PRODUCTION.md](PRODUCTION.md)** for complete production deployment guide.
 
 ### Local Development vs Production
 
-- **Local:** Uses `docker-compose.yml` and `traefik/traefik.yml`
-  - HTTP works without SSL
-  - Dashboard on port 8080
+All services are declared in a single, unified `docker-compose.yml` file. Behaviors are toggled seamlessly via your `.env` file (which can be configured automatically using the root `setup.sh` script):
+
+- **Local Development Mode (`setup.sh` option 2):**
+  - Uses `traefik/traefik.yml` (HTTP only)
+  - Traefik dashboard is exposed publicly on port `8080`
+  - Container restart policies are disabled (`no`)
+  - phpMyAdmin automatically logs in using credentials defined in `.env`
   
-- **Production:** Uses `docker-compose.prod.yml` and `traefik/traefik.prod.yml`
-  - Automatic HTTP to HTTPS redirect
-  - Dashboard restricted to localhost
-  - SSL certificates via Let's Encrypt
+- **Production Mode (`setup.sh` option 1):**
+  - Uses `traefik/traefik.prod.yml` (HTTPS enabled, automated Let's Encrypt SSL)
+  - Traefik dashboard is locked down securely to `127.0.0.1:8080` (requires SSH tunneling)
+  - Automatic container restarts are enabled (`unless-stopped`)
+  - phpMyAdmin forces users to login manually for safety
 
 ### Adding a New Client
 

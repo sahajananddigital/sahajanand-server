@@ -22,7 +22,16 @@ clients/*/
 # Docker volumes
 *.data
 
+# Web UI SQLite database
+webui/data/*
+!webui/data/.gitkeep
+
 # OS files
 .DS_Store
 Thumbs.db
+
+# Rclone config and service account keys
+rclone-gdrive-sa.json
+rclone.conf
+
 

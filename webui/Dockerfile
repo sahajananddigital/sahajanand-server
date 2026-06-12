@@ -1,15 +1,18 @@
 FROM php:8.2-apache
 
-# Install system dependencies and tools
+# Install system dependencies and tools (including docker.io for Docker CLI and rclone)
 RUN apt-get update && apt-get install -y \
+    docker.io \
+    rclone \
     zstd \
     bash \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Note: Docker CLI access is via the mounted /var/run/docker.sock from the host
-# We don't install Docker in the container, just use the socket
+# Note: Docker CLI access is via the mounted /var/run/docker.sock from the host.
+# We install the Docker CLI client (docker.io) inside the container so it can communicate with the socket.
+
 
 # Configure Apache
 RUN a2enmod rewrite

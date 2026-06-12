@@ -47,6 +47,17 @@ if ($method === 'GET' && isset($_GET['action']) && $_GET['action'] === 'download
         exit;
     }
     
+    // Multi-tenant check
+    $user_client = get_user_client();
+    if ($user_client !== null) {
+        $client_name = basename(dirname(dirname($real_path)));
+        if ($client_name !== $user_client) {
+            http_response_code(403);
+            echo 'Access denied';
+            exit;
+        }
+    }
+    
     // Additional check - must be a .zst file
     if (pathinfo($real_path, PATHINFO_EXTENSION) !== 'zst') {
         http_response_code(403);
@@ -84,6 +95,14 @@ if ($method === 'POST') {
                 exit;
             }
             
+            // Multi-tenant check
+            $user_client = get_user_client();
+            if ($user_client !== null && $client !== $user_client) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Unauthorized client backup access']);
+                exit;
+            }
+            
             // Validate type
             $allowed_types = ['all', 'database', 'files'];
             if (!in_array($type, $allowed_types)) {
@@ -108,11 +127,12 @@ if ($method === 'POST') {
             // Use proper escaping and redirect output
             $cmd = "nohup " . escape_shell_arg(BACKUP_SCRIPT);
             if (!empty($client)) {
-                // Note: Backup script doesn't support single client yet, but structure is ready
-                $cmd .= " > /tmp/backup_" . time() . ".log 2>&1 &";
-            } else {
-                $cmd .= " > /tmp/backup_" . time() . ".log 2>&1 &";
+                $cmd .= " --client " . escape_shell_arg($client);
             }
+            if (!empty($type)) {
+                $cmd .= " --type " . escape_shell_arg($type);
+            }
+            $cmd .= " > /tmp/backup_" . time() . ".log 2>&1 &";
             
             // Execute in background
             if (function_exists('exec')) {
@@ -151,6 +171,14 @@ if ($method === 'POST') {
                 exit;
             }
             
+            // Multi-tenant check
+            $user_client = get_user_client();
+            if ($user_client !== null && $client !== $user_client) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Unauthorized client restore access']);
+                exit;
+            }
+            
             // Security check - validate path
             $path = htmlspecialchars(strip_tags($path), ENT_QUOTES, 'UTF-8');
             $real_path = realpath($path);
@@ -182,9 +210,6 @@ if ($method === 'POST') {
             
             // Restore based on type
             if ($type === 'database' || strpos($decompressed_path, 'db') !== false || strpos(basename($path), 'db') !== false) {
-                // Restore MySQL database
-                $db_name = $client . '_db';
-                
                 // Validate decompressed file exists
                 if (!file_exists($decompressed_path)) {
                     http_response_code(400);
@@ -192,21 +217,46 @@ if ($method === 'POST') {
                     exit;
                 }
                 
-                // Load MySQL root password
-                $mysql_root_pass = get_mysql_root_password();
+                $ext = pathinfo($decompressed_path, PATHINFO_EXTENSION);
                 
-                // Validate file is a SQL file
-                if (pathinfo($decompressed_path, PATHINFO_EXTENSION) !== 'sql') {
-                    http_response_code(400);
-                    echo json_encode(['success' => false, 'message' => 'Invalid backup file type']);
-                    exit;
+                if ($ext === 'tar' || $ext === 'db' || $ext === 'sqlite' || $ext === 'sqlite3') {
+                    // Restore SQLite database
+                    $client_db_dir = CLIENTS_DIR . '/' . $client . '/database';
+                    if (!is_dir($client_db_dir)) {
+                        @mkdir($client_db_dir, 0775, true);
+                    }
+                    
+                    if ($ext === 'tar') {
+                        $result = exec_command("tar -xf " . escape_shell_arg($decompressed_path) . " -C " . escape_shell_arg($client_db_dir) . " 2>&1");
+                    } else {
+                        $db_name = basename($decompressed_path);
+                        $result = exec_command("cp " . escape_shell_arg($decompressed_path) . " " . escape_shell_arg($client_db_dir . '/' . $db_name) . " 2>&1");
+                    }
+                    
+                    echo json_encode([
+                        'success' => $result['success'],
+                        'message' => $result['success'] ? 'SQLite database restored successfully' : 'Failed to restore SQLite database.'
+                    ]);
+                } else {
+                    // Restore MySQL database
+                    $db_name = $client . '_db';
+                    
+                    // Validate file is a SQL file
+                    if ($ext !== 'sql') {
+                        http_response_code(400);
+                        echo json_encode(['success' => false, 'message' => 'Invalid backup file type']);
+                        exit;
+                    }
+                    
+                    // Load MySQL root password
+                    $mysql_root_pass = get_mysql_root_password();
+                    
+                    $result = exec_command("docker exec -i mysql mysql -u root -p" . escape_shell_arg($mysql_root_pass) . " < " . escape_shell_arg($decompressed_path) . " 2>&1");
+                    echo json_encode([
+                        'success' => $result['success'],
+                        'message' => $result['success'] ? 'Database restored successfully' : 'Failed to restore database. Check MySQL logs for details.'
+                    ]);
                 }
-                
-                $result = exec_command("docker exec -i mysql mysql -u root -p" . escape_shell_arg($mysql_root_pass) . " < " . escape_shell_arg($decompressed_path) . " 2>&1");
-                echo json_encode([
-                    'success' => $result['success'],
-                    'message' => $result['success'] ? 'Database restored successfully' : 'Failed to restore database. Check MySQL logs for details.'
-                ]);
             } else {
                 // Restore files
                 $client_dir = CLIENTS_DIR . '/' . $client;
@@ -240,6 +290,12 @@ if ($method === 'POST') {
             break;
             
         case 'delete':
+            if (!is_admin()) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Forbidden: Administrator privileges required to delete backups']);
+                exit;
+            }
+            
             $path = $input['path'] ?? '';
             
             if (empty($path)) {

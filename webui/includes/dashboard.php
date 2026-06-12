@@ -5,6 +5,15 @@ $databases = get_client_databases();
 $backups = get_backups();
 $system_info = get_system_info();
 
+// Multi-tenant filtering
+$user_client = get_user_client();
+if ($user_client !== null) {
+    $clients = array_filter($clients, fn($c) => $c['name'] === $user_client);
+    $containers = array_filter($containers, fn($c) => strpos($c['name'], $user_client) !== false);
+    $databases = array_filter($databases, fn($db) => $db['client'] === $user_client);
+    $backups = array_filter($backups, fn($b) => $b['client'] === $user_client);
+}
+
 $running_containers = array_filter($containers, fn($c) => $c['state'] === 'running');
 $stopped_containers = array_filter($containers, fn($c) => $c['state'] !== 'running');
 ?>

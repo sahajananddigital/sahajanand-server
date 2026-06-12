@@ -31,51 +31,79 @@ The backup script (`backup.sh`) automatically:
    sudo apt-get install zstd
    ```
 
-3. **Configure rclone remote:**
-   ```bash
-   rclone config
-   # Follow prompts to add your remote (S3, Google Drive, Backblaze, etc.)
-   ```
+3. **Configure Rclone Remote:**
+   Rclone can be configured in two ways:
+   - **Fully Automated via `.env` (Recommended for Google Drive Service Account)**: Configure environment variables directly in your `.env` file. No interactive commands required.
+   - **Interactively via CLI**: Run `rclone config` on your server to add your cloud storage provider.
+
+## Automated Setup & Configuration
+
+You can use the root-level `setup.sh` script to automatically install dependencies, generate random passwords, configure your rclone remote (including Google Drive Service Accounts), and schedule daily backup cron jobs.
+
+```bash
+chmod +x setup.sh
+./setup.sh
+```
 
 ## Usage
 
-### Basic Usage (Local Backup Only)
+The backup script (`backup.sh`) supports advanced command-line arguments to target specific clients, filter backup types, or execute local-only backups.
 
-```bash
-./backup.sh
+```
+Usage: ./backup.sh [options] [rclone-remote:path]
+
+Options:
+  -c, --client NAME      Only backup the specified client
+  -t, --type TYPE        Backup type: 'all' (default), 'database', or 'files'
+  -l, --local-only       Skip uploading to rclone remote
+  -h, --help             Display this help message
 ```
 
-This creates local backups in `/tmp/sahajanand-backups/` without uploading.
+### Examples
 
-### Upload to rclone Remote
-
-```bash
-./backup.sh myremote:backups/sahajanand-server
-```
-
-Replace `myremote` with your configured rclone remote name and adjust the path as needed.
-
-### Example Remote Configurations
-
-**Amazon S3:**
-```bash
-./backup.sh s3:bucket-name/backups/sahajanand-server
-```
-
-**Google Drive:**
+**1. Run full backup for all clients and upload to remote:**
 ```bash
 ./backup.sh gdrive:Backups/sahajanand-server
 ```
+*(If `RCLONE_REMOTE_PATH` is configured in `.env`, you can simply run `./backup.sh` and it will automatically upload there).*
 
-**Backblaze B2:**
+**2. Local-only backup (no remote upload):**
 ```bash
-./backup.sh b2:bucket-name/backups/sahajanand-server
+./backup.sh --local-only
 ```
 
-**SFTP/SSH:**
+**3. Backup only a specific client's database and upload:**
 ```bash
-./backup.sh myserver:/backups/sahajanand-server
+./backup.sh --client client1 --type database
 ```
+
+**4. Backup only a specific client's files (directories):**
+```bash
+./backup.sh --client client1 --type files
+```
+
+## Google Drive Service Account (Headless Server Setup)
+
+Google Drive standard OAuth requires a web browser to authorize, which is difficult on headless VPS servers. Using a Google Cloud **Service Account** is highly recommended because it is fully automated, non-interactive, and doesn't expire.
+
+### Configuration Steps:
+1. Go to the [Google Cloud Console](https://console.cloud.google.com).
+2. Create a project and enable the **Google Drive API**.
+3. Navigate to **IAM & Admin -> Service Accounts** and create a Service Account.
+4. Select the created Service Account, click **Keys -> Add Key -> Create new key**, select **JSON**, and download the file.
+5. Share the target Google Drive folder with the Service Account email address (giving it Editor permissions).
+6. Place the downloaded JSON file as `rclone-gdrive-sa.json` in the root of this project.
+7. Configure/uncomment the following in your `.env` file:
+
+```env
+RCLONE_REMOTE_PATH=gdrive:Backups/sahajanand-server
+RCLONE_CONFIG_GDRIVE_TYPE=drive
+RCLONE_CONFIG_GDRIVE_SCOPE=drive
+RCLONE_CONFIG_GDRIVE_SERVICE_ACCOUNT_FILE=/var/www/project/rclone-gdrive-sa.json
+```
+
+> [!IMPORTANT]
+> The path `/var/www/project/rclone-gdrive-sa.json` is mapped for the Docker Web UI container. When running backups on the host VPS (e.g. via cron), the script automatically translates this container path to the host absolute path. You don't need to change anything!
 
 ## Backup Structure
 
@@ -87,18 +115,11 @@ The script creates separate backups for each client:
 rclone-remote:path/
 ├── client1/
 │   ├── database/
-│   │   ├── client1_db_20240101_120000.sql.zst
-│   │   └── client1_db_20240102_120000.sql.zst
+│   │   ├── client1_db_20260612_120000.sql.zst
+│   │   └── client1_db_20260613_120000.sql.zst
 │   └── files/
-│       ├── client1_files_20240101_120000.tar.zst
-│       └── client1_files_20240102_120000.tar.zst
-├── client2/
-│   ├── database/
-│   │   └── client2_db_20240101_120000.sql.zst
-│   └── files/
-│       └── client2_files_20240101_120000.tar.zst
-└── client3/
-    └── ...
+│       ├── client1_files_20260612_120000.tar.zst
+│       └── client1_files_20260613_120000.tar.zst
 ```
 
 ### What Gets Backed Up
@@ -127,35 +148,37 @@ Backups are compressed using **zstd** at compression level 10 (maximum compressi
 
 ```bash
 # Decompress
-zstd -d client1_db_20240101_120000.sql.zst
+zstd -d client1_db_20260612_120000.sql.zst
 
 # Restore
-docker exec -i mysql mysql -u root -p"${MYSQL_ROOT_PASSWORD}" < client1_db_20240101_120000.sql
+docker exec -i mysql mysql -u root -p"${MYSQL_ROOT_PASSWORD}" < client1_db_20260612_120000.sql
 ```
 
 ### Restore Client Files
 
 ```bash
 # Download from rclone
-rclone copy myremote:backups/sahajanand-server/client1/files/client1_files_20240101_120000.tar.zst ./
+rclone copy gdrive:Backups/sahajanand-server/client1/files/client1_files_20260612_120000.tar.zst ./
 
 # Decompress
-zstd -d client1_files_20240101_120000.tar.zst
+zstd -d client1_files_20260612_120000.tar.zst
 
 # Extract
-tar -xf client1_files_20240101_120000.tar -C clients/
+tar -xf client1_files_20260612_120000.tar -C clients/
 ```
 
 ## Automation
 
 ### Cron Job (Daily Backup)
 
-Add to crontab (`crontab -e`):
+The easiest way to schedule backups is using the `setup.sh` installer, which sets up the cron job automatically. Alternatively, add this to your crontab (`crontab -e`):
 
 ```bash
 # Daily backup at 2 AM
-0 2 * * * /path/to/sahajanand-server/backup.sh myremote:backups/sahajanand-server >> /var/log/sahajanand-backup.log 2>&1
+0 2 * * * /bin/bash /path/to/sahajanand-server/backup.sh >> /path/to/sahajanand-server/logs/backup.log 2>&1
 ```
+
+*(Note: The backup script will automatically load the environment variables from the `.env` file in the same directory and upload to your configured remote).*
 
 ### Systemd Timer (Linux)
 

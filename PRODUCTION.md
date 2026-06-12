@@ -67,11 +67,11 @@ nano traefik/phpmyadmin/config.user.inc.php
 ### 5. Start Infrastructure
 
 ```bash
-# Start Traefik with production configuration
-docker-compose -f docker-compose.prod.yml --env-file .env up -d
+# Start Traefik and infrastructure services
+docker-compose up -d
 
-# Verify Traefik is running
-docker-compose -f docker-compose.prod.yml ps
+# Verify services are running
+docker-compose ps
 docker logs traefik
 ```
 
@@ -174,7 +174,7 @@ sudo ufw enable
 
 ```bash
 # All services
-docker-compose -f docker-compose.prod.yml ps
+docker-compose ps
 
 # Specific client
 docker logs client1 --tail 50 -f
@@ -263,7 +263,7 @@ sudo systemctl stop apache2  # or nginx
    ```bash
    # Check for updates
    docker pull traefik:v3.0
-   docker-compose -f docker-compose.prod.yml up -d traefik
+   docker-compose up -d traefik
    ```
 
 5. **Restrict dashboard access:** Already configured to localhost only
@@ -305,8 +305,8 @@ docker-compose up -d
 ### Update Traefik
 
 ```bash
-docker-compose -f docker-compose.prod.yml pull traefik
-docker-compose -f docker-compose.prod.yml up -d traefik
+docker-compose pull traefik
+docker-compose up -d traefik
 ```
 
 ## Support

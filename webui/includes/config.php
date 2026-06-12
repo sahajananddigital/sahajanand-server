@@ -21,6 +21,10 @@ define('BACKUP_SCRIPT', $isDocker ? '/var/www/backup.sh' : (PROJECT_ROOT . '/bac
 // Docker socket for Docker API
 define('DOCKER_SOCKET', $isDocker ? 'unix:///var/run/docker.sock' : 'unix:///var/run/docker.sock');
 
+// Web UI SQLite Database file
+define('DB_FILE', $isDocker ? '/var/www/webui/data/webui.db' : (PROJECT_ROOT . '/webui/data/webui.db'));
+
+
 // Timezone
 date_default_timezone_set('UTC');
 
@@ -31,10 +35,16 @@ ini_set('display_errors', 0);
 /**
  * Get MySQL root password from environment or .env file
  */
-function get_mysql_root_password() {
-    // Try environment variable first
-    if (!empty($_ENV['MYSQL_ROOT_PASSWORD'])) {
-        return $_ENV['MYSQL_ROOT_PASSWORD'];
+/**
+ * Get an environment variable from system env or .env file
+ */
+function get_env_var($name, $default = '') {
+    if (!empty($_ENV[$name])) {
+        return $_ENV[$name];
+    }
+    $val = getenv($name);
+    if ($val !== false) {
+        return $val;
     }
     
     // Try .env file
@@ -42,12 +52,25 @@ function get_mysql_root_password() {
     if (file_exists($env_file)) {
         $lines = file($env_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         foreach ($lines as $line) {
-            if (preg_match('/^\s*MYSQL_ROOT_PASSWORD\s*=\s*(.+?)\s*$/', $line, $matches)) {
-                return trim($matches[1], '"\'');
+            if (preg_match('/^\s*' . preg_quote($name, '/') . '\s*=\s*(.+?)\s*$/', $line, $matches)) {
+                // If it references another variable like ${BASE_DOMAIN}, we resolve it
+                $val = trim($matches[1], '"\'');
+                if (preg_match('/^\$\{(.+?)\}/', $val, $inner_matches)) {
+                    $inner_var = $inner_matches[1];
+                    $resolved_inner = get_env_var($inner_var);
+                    $val = str_replace('${' . $inner_var . '}', $resolved_inner, $val);
+                }
+                return $val;
             }
         }
     }
-    
-    // Default fallback (should be changed in production)
-    return 'rootpassword';
+    return $default;
 }
+
+/**
+ * Get MySQL root password from environment or .env file
+ */
+function get_mysql_root_password() {
+    return get_env_var('MYSQL_ROOT_PASSWORD', 'rootpassword');
+}
+

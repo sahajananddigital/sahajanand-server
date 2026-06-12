@@ -39,29 +39,26 @@ The Web UI has its own docker-compose file for independent management.
    docker-compose up -d --build
    ```
 
-### Production
+### Production & Local Development
 
-1. **Start the main infrastructure** (from project root):
-   ```bash
-   docker-compose -f docker-compose.prod.yml up -d
-   ```
+Starting services in either mode uses the same commands, as environment configuration (such as HTTPS redirects and domains) is managed dynamically via your `.env` file (configured easily using the root `setup.sh` script).
 
-2. **Start the Web UI** (from webui directory):
-   ```bash
-   cd webui
-   docker-compose -f docker-compose.prod.yml up -d --build
-   ```
+**1. Start the main infrastructure** (from project root):
+```bash
+docker-compose up -d
+```
+
+**2. Start the Web UI** (from the `webui` directory):
+```bash
+cd webui
+docker-compose up -d --build
+```
 
 ### Quick Start (All Services)
 
-From the project root, you can start everything:
-
+To boot up all services (Main Infra + Web UI) sequentially:
 ```bash
-# Local development
-docker-compose up -d && cd webui && docker-compose up -d
-
-# Production
-docker-compose -f docker-compose.prod.yml up -d && cd webui && docker-compose -f docker-compose.prod.yml up -d
+docker-compose up -d && cd webui && docker-compose up -d --build
 ```
 
 The Web UI container will:

@@ -7,22 +7,17 @@ This directory contains individual client applications. Most clients are PHP-bas
 Each client should be placed in its own folder:
 ```
 clients/
-  ├── client1/              # PHP client example
+  ├── wordpress/            # WordPress (PHP + Nginx) client example
   │   ├── Dockerfile
   │   ├── docker-compose.yml
   │   ├── nginx.conf
-  │   ├── .dockerignore
   │   └── [your PHP application files]
-  ├── erpnext/              # ERPNext (Python/Frappe) client
+  ├── erpnext/              # ERPNext (Frappe/Python) client example
   │   ├── docker-compose.yml
-  │   ├── README.md
-  │   └── [ERPNext configuration]
-  ├── client2/              # Another PHP client
-  │   ├── Dockerfile
+  │   └── README.md
+  ├── postiz/               # Postiz (Node + Postgres + Redis) client example
   │   ├── docker-compose.yml
-  │   ├── nginx.conf
-  │   ├── .dockerignore
-  │   └── [your PHP application files]
+  │   └── README.md
   └── ...
 ```
 
@@ -33,7 +28,7 @@ clients/
    mkdir -p clients/your-client-name
    ```
 
-2. Copy the `Dockerfile`, `docker-compose.yml`, and `nginx.conf` from `client1/` and customize as needed
+2. Copy the configuration template files from `wordpress/` (for PHP/HTML apps) or use `postiz/` as a blueprint (for complex multi-container node/database apps) and customize as needed.
 
 3. Add your PHP application files to the client folder (typically in a `public/` subdirectory for Laravel/other frameworks)
 
