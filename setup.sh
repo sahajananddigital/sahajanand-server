@@ -29,6 +29,13 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Check if run as root user
+if [ "$EUID" -eq 0 ] || [ "$(id -u)" -eq 0 ]; then
+    log_error "This script must NOT be run as the root user directly."
+    log_error "Please run it as a regular user with sudo privileges instead: bash setup.sh"
+    exit 1
+fi
+
 # Print Header
 echo -e "${GREEN}"
 echo "=================================================================="
@@ -237,27 +244,34 @@ configure_env() {
     pla_host="${pla_host:-$current_pla_host}"
     set_env_var "PHPLITEADMIN_HOST" "$pla_host"
 
-    # 4. Setup MySQL Root Password
+    # 4. Setup MySQL Root Password (Non-Interactive Auto-Generation)
     current_root_pass=$(grep "^MYSQL_ROOT_PASSWORD=" .env | cut -d= -f2 || echo "")
     if [ -z "$current_root_pass" ] || [ "$current_root_pass" = "rootpassword" ]; then
-        random_pass=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 20)
-        echo -n "Enter MySQL Root Password [Press Enter to generate a secure random one]: "
-        read -r root_pass
-        root_pass="${root_pass:-$random_pass}"
-        
+        root_pass=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 24)
         set_env_var "MYSQL_ROOT_PASSWORD" "$root_pass"
         if [ "$env_option" = "2" ]; then
             set_env_var "PMA_PASSWORD" "$root_pass"
         fi
-        log_success "MySQL Root Password configured."
+        log_success "MySQL Root Password auto-generated."
     fi
 
-    # 5. Setup default MySQL App Password
+    # 5. Setup default MySQL App Password (Non-Interactive Auto-Generation)
     current_app_pass=$(grep "^MYSQL_PASSWORD=" .env | cut -d= -f2 || echo "")
     if [ -z "$current_app_pass" ] || [ "$current_app_pass" = "app_password" ]; then
-        random_app_pass=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 20)
-        set_env_var "MYSQL_PASSWORD" "$random_app_pass"
-        log_success "Default MySQL user password configured."
+        app_pass=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 24)
+        set_env_var "MYSQL_PASSWORD" "$app_pass"
+        log_success "Default MySQL user password auto-generated."
+    fi
+
+    # 6. Setup Web UI Admin Credentials (Non-Interactive Auto-Generation)
+    if [ ! -f .webui_auth ]; then
+        webui_pass=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+        cat > .webui_auth << EOF
+WEBUI_USERNAME=admin
+WEBUI_PASSWORD=$webui_pass
+EOF
+        chmod 600 .webui_auth
+        log_success "Web UI administrator credentials auto-generated."
     fi
 }
 
@@ -437,6 +451,56 @@ start_docker_infra() {
     fi
 }
 
+# Generate secure credentials storage file
+write_credentials_file() {
+    log_info "Generating secure credentials storage file..."
+    
+    local root_pass=$(grep "^MYSQL_ROOT_PASSWORD=" .env | cut -d= -f2 || echo "")
+    local app_pass=$(grep "^MYSQL_PASSWORD=" .env | cut -d= -f2 || echo "")
+    
+    local webui_user="admin"
+    local webui_pass=""
+    if [ -f .webui_auth ]; then
+        webui_user=$(grep "^WEBUI_USERNAME=" .webui_auth | cut -d= -f2 || echo "admin")
+        webui_pass=$(grep "^WEBUI_PASSWORD=" .webui_auth | cut -d= -f2 || echo "Already Encrypted / Configured")
+    fi
+    
+    local webui_domain=$(grep "^WEBUI_HOST=" .env | cut -d= -f2 || echo "webui.localhost")
+    local pma_domain=$(grep "^PHPMYADMIN_HOST=" .env | cut -d= -f2 || echo "phpmyadmin.localhost")
+    local pla_domain=$(grep "^PHPLITEADMIN_HOST=" .env | cut -d= -f2 || echo "phpliteadmin.localhost")
+
+    local resolved_webui=$(resolve_env_var "$webui_domain")
+    local resolved_pma=$(resolve_env_var "$pma_domain")
+    local resolved_pla=$(resolve_env_var "$pla_domain")
+    
+    cat > credentials.txt << EOF
+==================================================================
+        SAHAJANAND SERVER VPS CONFIGURATION CREDENTIALS
+==================================================================
+Generated on: $(date)
+Keep this file secure and save it in a safe place!
+
+1. WEB MANAGEMENT INTERFACE
+   URL:       http://${resolved_webui}
+   Username:  ${webui_user}
+   Password:  ${webui_pass}
+
+2. MYSQL DATABASE ACCESS
+   Root Username: root
+   Root Password: ${root_pass}
+   
+   Default App User: app_user
+   Default App Pass: ${app_pass}
+
+3. ADMINISTRATIVE TOOLS
+   phpMyAdmin URL:    http://${resolved_pma}
+   phpLiteAdmin URL:  http://${resolved_pla}
+==================================================================
+EOF
+    chmod 600 credentials.txt
+    log_success "Credentials saved to: credentials.txt"
+}
+
 # Main script flow
 main() {
     check_os
@@ -456,19 +520,35 @@ main() {
     local resolved_pma=$(resolve_env_var "$pma_domain")
     local resolved_pla=$(resolve_env_var "$pla_domain")
 
+    write_credentials_file
+
+    local root_pass=$(grep "^MYSQL_ROOT_PASSWORD=" .env | cut -d= -f2 || echo "")
+    local webui_user="admin"
+    local webui_pass=""
+    if [ -f .webui_auth ]; then
+        webui_user=$(grep "^WEBUI_USERNAME=" .webui_auth | cut -d= -f2 || echo "admin")
+        webui_pass=$(grep "^WEBUI_PASSWORD=" .webui_auth | cut -d= -f2 || echo "Already Configured")
+    fi
+
     echo ""
-    echo "=================================================================="
+    echo -e "${GREEN}==================================================================${NC}"
     log_success "          Sahajanand Server setup completed!              "
-    echo "=================================================================="
+    echo -e "${GREEN}==================================================================${NC}"
+    echo -e "  Web Management UI:   ${BLUE}http://${resolved_webui}${NC}"
+    echo -e "    Username:          ${BLUE}${webui_user}${NC}"
+    echo -e "    Password:          ${YELLOW}${webui_pass}${NC}"
+    echo ""
+    echo -e "  MySQL Root Password: ${YELLOW}${root_pass}${NC}"
+    echo -e "  phpMyAdmin URL:      http://${resolved_pma}"
+    echo -e "  phpLiteAdmin URL:    http://${resolved_pla}"
+    echo -e "${GREEN}==================================================================${NC}"
+    echo -e "  Credentials file:    ${GREEN}credentials.txt${NC}"
+    echo -e "${GREEN}==================================================================${NC}"
     echo "Next steps:"
     echo "  1. If you didn't start the services, do so via: "
     echo "     docker compose up -d"
-    echo "  2. Access administrative tools:"
-    echo "     - Web Management UI:  http://${resolved_webui} or https://${resolved_webui}"
-    echo "     - phpMyAdmin (MySQL): http://${resolved_pma} or https://${resolved_pma}"
-    echo "     - phpLiteAdmin (SQL): http://${resolved_pla} or https://${resolved_pla}"
-    echo "  3. Deploy your clients inside the 'clients/' directory."
-    echo "  4. Check backup logs at: tail -f logs/backup.log"
+    echo "  2. Deploy your clients inside the 'clients/' directory."
+    echo "  3. Check backup logs at: tail -f logs/backup.log"
     echo "=================================================================="
     echo ""
 }

@@ -69,24 +69,36 @@ function get_db() {
             $auth_file = PROJECT_ROOT . '/.webui_auth';
             if (file_exists($auth_file)) {
                 $lines = file($auth_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                $plaintext_pass = '';
                 foreach ($lines as $line) {
                     if (strpos($line, 'WEBUI_USERNAME=') === 0) {
                         $default_user = trim(substr($line, 15));
                     } elseif (strpos($line, 'WEBUI_PASSWORD_HASH=') === 0) {
                         $default_hash = trim(substr($line, 20));
+                    } elseif (strpos($line, 'WEBUI_PASSWORD=') === 0) {
+                        $plaintext_pass = trim(substr($line, 15));
                     }
+                }
+                if (!empty($plaintext_pass) && empty($default_hash)) {
+                    $default_hash = password_hash($plaintext_pass, PASSWORD_DEFAULT);
                 }
             } else {
                 // Try .env
                 $env_file = PROJECT_ROOT . '/.env';
                 if (file_exists($env_file)) {
                     $lines = file($env_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                    $plaintext_pass = '';
                     foreach ($lines as $line) {
                         if (strpos($line, 'WEBUI_USERNAME=') === 0) {
                             $default_user = trim(substr($line, 15));
                         } elseif (strpos($line, 'WEBUI_PASSWORD_HASH=') === 0) {
                             $default_hash = trim(substr($line, 20));
+                        } elseif (strpos($line, 'WEBUI_PASSWORD=') === 0) {
+                            $plaintext_pass = trim(substr($line, 15));
                         }
+                    }
+                    if (!empty($plaintext_pass) && empty($default_hash)) {
+                        $default_hash = password_hash($plaintext_pass, PASSWORD_DEFAULT);
                     }
                 }
             }

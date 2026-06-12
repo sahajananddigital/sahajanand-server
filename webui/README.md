@@ -101,18 +101,19 @@ All API endpoints are in `/api/`:
 ⚠️ **CRITICAL**: The Web UI includes comprehensive security features:
 
 ### Authentication (Required)
-**Before first use**, set up authentication:
+**Before first use**, you must set up authentication. 
 
-```bash
-cd webui
-./setup-auth.sh
-```
-
-Or manually create `.webui_auth` in the project root:
-```
-WEBUI_USERNAME=admin
-WEBUI_PASSWORD_HASH=$2y$10$...your-hash...
-```
+* **Automated (Recommended)**: The root-level [setup.sh](file:///E:/github/sahajanand-server/setup.sh) automatically generates a secure random password for the `admin` user and writes it to `.webui_auth` as `WEBUI_PASSWORD`. The container will dynamically read, hash, and seed it on start.
+* **Manual Setup**: If you wish to set custom credentials interactively, run:
+  ```bash
+  cd webui
+  ./setup-auth.sh
+  ```
+  Or manually define the username and hashed password inside `.webui_auth` in the project root:
+  ```ini
+  WEBUI_USERNAME=admin
+  WEBUI_PASSWORD_HASH=$2y$10$...bcrypt-hash-here...
+  ```
 
 ### Security Features
 

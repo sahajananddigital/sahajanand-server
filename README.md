@@ -14,80 +14,43 @@ Docker-based infrastructure setup with Traefik reverse proxy and PHP client cont
 - **Automatic HTTPS** in production
 - **Security headers** and gzip compression
 
-## Quick Start (Local Development)
+## Quick Start Guide
 
-### 1. Configure Environment (Optional)
-
-```bash
-cp .env.example .env
-# Edit .env if you want to change MySQL passwords
-```
-
-### 2. Setup phpLiteAdmin (One-time)
+We have simplified the deployment workflow with automated setup wizards. Do not run these as the root user. If you are on a fresh VPS logged in as `root`, first run the user creation script to create a secure system admin:
 
 ```bash
-cd phpliteadmin
-./setup.sh
+bash create-admin-user.sh
 ```
 
-This downloads and configures phpLiteAdmin. **Don't forget to set a password** in `phpliteadmin.php`!
+Log in as the newly created system admin user to perform the installation.
 
-### 3. Start Infrastructure (Traefik + MySQL + Admin Tools)
+### Automated Setup
+
+Run the main setup script in your project directory:
 
 ```bash
-docker-compose up -d
+bash setup.sh
 ```
 
-This starts Traefik, MySQL, phpMyAdmin, and phpLiteAdmin.
+The script will guide you through the configuration process:
+1. **Choose Environment Mode**: Select `1` for Production (SSL certificates enabled, secure binds, automated restarts) or `2` for Local Development (HTTP only, exposed ports, no SSL).
+2. **Configure Domain Routing**: Specify your base domain name and subdomains for the admin tools.
+3. **Database & Web UI Passwords**: Auto-generates secure random credentials.
+4. **Cloud Backup (Optional)**: Set up Google Drive or other remote backups via rclone.
+5. **Start Infrastructure**: Automatically configures subvolumes, sets permissions, and starts Traefik, MySQL, phpMyAdmin, and the Web UI.
 
-### 4. Add Host Entries (Local Development)
+All generated passwords and access details will be printed on the screen and stored securely in `credentials.txt` (which has restricted permissions).
 
-```bash
-cd clients
-./add-hosts.sh 127.0.0.1
-```
+### Manual Setup (Advanced)
 
-### 5. Deploy a Client
+If you prefer to start services manually:
+1. Copy the environment template: `cp .env.example .env` and update details.
+2. Initialize phpLiteAdmin: `cd phpliteadmin && bash setup.sh`.
+3. Create the database directory for Web UI: `mkdir -p webui/data && chmod 777 webui/data`.
+4. Start core services: `docker compose up -d`.
+5. Start Web UI: `docker compose -f webui/docker-compose.yml up -d --build`.
 
-```bash
-cd clients/client1
-docker-compose up -d --build
-```
-
-### 6. Access Admin Tools
-
-- **phpMyAdmin:** `http://phpmyadmin.example.com` (Login: root / password from .env)
-- **phpLiteAdmin:** `http://phpliteadmin.example.com` (Password set in phpliteadmin.php)
-
-### 7. Test
-
-Visit `http://client1.example.com` in your browser (or use curl with Host header)
-
-## Production Deployment
-
-See **[PRODUCTION.md](PRODUCTION.md)** for complete production deployment guide.
-
-### Quick Production Setup
-
-1. **Configure environment:**
-   ```bash
-   cp .env.example .env
-   nano .env  # Set EMAIL=your-email@domain.com
-   ```
-
-2. **Start the Infrastructure:**
-   ```bash
-   docker-compose up -d
-   ```
-
-3. **Update client domains** in each client's `docker-compose.yml`
-
-4. **Deploy clients:**
-   ```bash
-   cd clients/client1
-   # Update domain in docker-compose.yml
-   docker-compose up -d --build
-   ```
+---
 
 ## Directory Structure
 
@@ -278,5 +241,5 @@ See **[webui/SECURITY.md](webui/SECURITY.md)** for complete security documentati
 
 ## License
 
-[Your License Here]
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.
 
