@@ -31,9 +31,22 @@ log_error() {
 
 # Check if run as root user
 if [ "$EUID" -eq 0 ] || [ "$(id -u)" -eq 0 ]; then
-    log_error "This script must NOT be run as the root user directly."
-    log_error "Please run it as a regular user with sudo privileges instead: bash setup.sh"
-    exit 1
+    log_warn "This script must NOT be run as the root user directly."
+    echo ""
+    echo -n "Would you like to automatically create a secure non-root system admin user now? (y/n): "
+    read -r create_sys_user
+    if [[ "$create_sys_user" =~ ^[Yy]$ ]]; then
+        if [ -f "create-admin-user.sh" ]; then
+            bash create-admin-user.sh
+            exit 0
+        else
+            log_error "create-admin-user.sh script not found. Cannot create user automatically."
+            exit 1
+        fi
+    else
+        log_error "Installation aborted. Please rerun as a regular user with sudo privileges: bash setup.sh"
+        exit 1
+    fi
 fi
 
 # Print Header
