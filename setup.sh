@@ -240,21 +240,24 @@ configure_env() {
     set_env_var "BASE_DOMAIN" "$base_domain"
     
     current_webui_host=$(grep "^WEBUI_HOST=" .env | cut -d= -f2 || echo "webui.\${BASE_DOMAIN}")
-    echo -n "Web UI Domain [default: $(resolve_env_var "$current_webui_host")]: "
+    resolved_webui_host=$(resolve_env_var "$current_webui_host")
+    echo -n "Web UI Domain [default: $resolved_webui_host]: "
     read -r webui_host
-    webui_host="${webui_host:-$current_webui_host}"
+    webui_host="${webui_host:-$resolved_webui_host}"
     set_env_var "WEBUI_HOST" "$webui_host"
 
     current_pma_host=$(grep "^PHPMYADMIN_HOST=" .env | cut -d= -f2 || echo "phpmyadmin.\${BASE_DOMAIN}")
-    echo -n "phpMyAdmin Domain [default: $(resolve_env_var "$current_pma_host")]: "
+    resolved_pma_host=$(resolve_env_var "$current_pma_host")
+    echo -n "phpMyAdmin Domain [default: $resolved_pma_host]: "
     read -r pma_host
-    pma_host="${pma_host:-$current_pma_host}"
+    pma_host="${pma_host:-$resolved_pma_host}"
     set_env_var "PHPMYADMIN_HOST" "$pma_host"
 
     current_pla_host=$(grep "^PHPLITEADMIN_HOST=" .env | cut -d= -f2 || echo "phpliteadmin.\${BASE_DOMAIN}")
-    echo -n "phpLiteAdmin Domain [default: $(resolve_env_var "$current_pla_host")]: "
+    resolved_pla_host=$(resolve_env_var "$current_pla_host")
+    echo -n "phpLiteAdmin Domain [default: $resolved_pla_host]: "
     read -r pla_host
-    pla_host="${pla_host:-$current_pla_host}"
+    pla_host="${pla_host:-$resolved_pla_host}"
     set_env_var "PHPLITEADMIN_HOST" "$pla_host"
 
     # 4. Setup MySQL Root Password (Non-Interactive Auto-Generation)
