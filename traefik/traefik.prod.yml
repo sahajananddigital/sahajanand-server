@@ -40,7 +40,7 @@ certificatesResolvers:
       # Remove caServer line for production (uses Let's Encrypt production)
 
 log:
-  level: ${TRAEFIK_LOG_LEVEL:-INFO}
+  level: ${TRAEFIK_LOG_LEVEL}
   filePath: /var/log/traefik/traefik.log
 
 accessLog:

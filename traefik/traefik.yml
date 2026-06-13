@@ -29,7 +29,7 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: ${EMAIL:-admin@localhost}
+      email: ${EMAIL}
       storage: /ssl/acme.json
       httpChallenge:
         entryPoint: web
