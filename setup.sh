@@ -453,6 +453,8 @@ start_docker_infra() {
         log_info "Preparing Web UI SQLite database directory..."
         mkdir -p webui/data
         chmod 777 webui/data 2>/dev/null || true
+        # Symlink root .env to webui/.env so nested docker-compose operations have access to variables
+        ln -sf ../.env webui/.env
         log_info "Starting Web UI..."
         docker compose -f webui/docker-compose.yml up -d --build
         log_success "Web UI container started."
