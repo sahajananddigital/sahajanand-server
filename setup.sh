@@ -440,12 +440,19 @@ setup_phpliteadmin_tool() {
 
 # Start Docker containers
 start_docker_infra() {
+    # Check if the current user has write access to the docker socket
+    local docker_cmd="docker"
+    if [ ! -w /var/run/docker.sock ]; then
+        docker_cmd="sudo docker"
+        log_info "Note: Using 'sudo docker' because the current user session does not have direct write permissions to /var/run/docker.sock yet."
+    fi
+
     echo ""
     echo -n "Would you like to start the core infrastructure (Traefik, MySQL, Redis, phpMyAdmin) now? (y/n): "
     read -r start_infra
     if [[ "$start_infra" =~ ^[Yy]$ ]]; then
         log_info "Starting Docker services..."
-        docker compose up -d
+        $docker_cmd compose up -d
         log_success "Infrastructure containers started."
     fi
 
@@ -459,7 +466,7 @@ start_docker_infra() {
         # Symlink root .env to webui/.env so nested docker-compose operations have access to variables
         ln -sf ../.env webui/.env
         log_info "Starting Web UI..."
-        docker compose -f webui/docker-compose.yml up -d --build
+        $docker_cmd compose -f webui/docker-compose.yml up -d --build
         log_success "Web UI container started."
         
         # Output access links dynamically
