@@ -1,0 +1,71 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3 QUIC
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - proxy_net
+    mem_limit: 128m
+
+  shared_postgres:
+    image: postgres:16-alpine
+    container_name: shared_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_ROOT_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c work_mem=8MB
+      -c maintenance_work_mem=64MB
+      -c max_connections=100
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - db_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ROOT_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 512m
+
+  shared_redis:
+    image: redis:7-alpine
+    container_name: shared_redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - db_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    mem_limit: 150m
+
+networks:
+  proxy_net:
+    external: true
+  db_net:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  redis_data:

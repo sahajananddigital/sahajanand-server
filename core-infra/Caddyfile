@@ -1,0 +1,22 @@
+# ==============================================================================
+# Global Options
+# ==============================================================================
+{
+    # Optional: Set your email for Let's Encrypt automated SSL registration
+    # email admin@example.com
+}
+
+# ==============================================================================
+# App Reverse Proxy Definitions
+# Containers communicate across the external 'proxy_net' bridge network.
+# ==============================================================================
+
+git.example.com {
+    encode zstd gzip
+    reverse_proxy gitea:3000
+}
+
+status.example.com {
+    encode zstd gzip
+    reverse_proxy uptime_kuma:3001
+}

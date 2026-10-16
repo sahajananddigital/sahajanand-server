@@ -1,37 +1,62 @@
-# Environment files
-.env
-.env.local
+# ==============================================================================
+# Git Security & Repository Ignore Rules
+# Target: 4GB RAM Hetzner ARM64 Docker Infrastructure
+# ==============================================================================
 
-# Web UI authentication
-.webui_auth
+# ------------------------------------------------------------------------------
+# Secrets & Environment Files
+# Strictly ignore real .env files across all subdirectories, but track templates.
+# ------------------------------------------------------------------------------
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
 
-# SSL certificates
-ssl/
+# ------------------------------------------------------------------------------
+# Container Runtime & Persistent Bind Mounts
+# ------------------------------------------------------------------------------
+**/data/
+**/*_data/
+**/caddy_data/
+**/caddy_config/
+**/letsencrypt/
+
+# ------------------------------------------------------------------------------
+# Database Dumps, Backups & Archives
+# ------------------------------------------------------------------------------
+*.sql
+*.sql.gz
+*.dump
+*.tar
+*.tar.gz
+*.tgz
+*.bak
+*.backup
+
+# ------------------------------------------------------------------------------
+# SSL/TLS Certificates and Private Keys
+# ------------------------------------------------------------------------------
+*.pem
 *.key
 *.crt
-*.pem
+*.pfx
+*.p12
+*.csr
 
-# Logs
-logs/
-*.log
-
-# Client data
-clients/*/
-!clients/.gitkeep
-
-# Docker volumes
-*.data
-
-# Web UI SQLite database
-webui/data/*
-!webui/data/.gitkeep
-
-# OS files
+# ------------------------------------------------------------------------------
+# Operating System & Editor Files
+# ------------------------------------------------------------------------------
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
-
-# Rclone config and service account keys
-rclone-gdrive-sa.json
-rclone.conf
-
-
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace

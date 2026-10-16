@@ -1,3 +1,0 @@
-# Place SQL initialization scripts here
-# Files with .sql extension will be executed automatically when MySQL container starts for the first time
-

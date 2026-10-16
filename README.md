@@ -1,245 +1,199 @@
-# Sahajanand Server Infrastructure
+# Hetzner ARM64 Infrastructure as Code (IaC)
 
-Docker-based infrastructure setup with Traefik reverse proxy and PHP client containers.
-
-## Features
-
-- **Traefik v3** reverse proxy with automatic SSL (Let's Encrypt)
-- **PHP 8.2-FPM** containers with Nginx for each client
-- **Isolated client containers** - each client has its own folder and configuration
-- **MySQL database** - each client has isolated database and credentials
-- **SQLite support** - for each client
-- **phpMyAdmin** - MySQL database administration tool
-- **phpLiteAdmin** - SQLite database administration tool
-- **Automatic HTTPS** in production
-- **Security headers** and gzip compression
-
-## Quick Start Guide
-
-We have simplified the deployment workflow with automated setup wizards. Do not run these as the root user. If you are on a fresh VPS logged in as `root`, first run the user creation script to create a secure system admin:
-
-```bash
-bash create-admin-user.sh
-```
-
-Log in as the newly created system admin user to perform the installation.
-
-### Automated Setup
-
-Run the main setup script in your project directory:
-
-```bash
-bash setup.sh
-```
-
-The script will guide you through the configuration process:
-1. **Choose Environment Mode**: Select `1` for Production (SSL certificates enabled, secure binds, automated restarts) or `2` for Local Development (HTTP only, exposed ports, no SSL).
-2. **Configure Domain Routing**: Specify your base domain name and subdomains for the admin tools.
-3. **Database & Web UI Passwords**: Auto-generates secure random credentials.
-4. **Cloud Backup (Optional)**: Set up Google Drive or other remote backups via rclone.
-5. **Start Infrastructure**: Automatically configures subvolumes, sets permissions, and starts Traefik, MySQL, phpMyAdmin, and the Web UI.
-
-All generated passwords and access details will be printed on the screen and stored securely in `credentials.txt` (which has restricted permissions).
-
-### Manual Setup (Advanced)
-
-If you prefer to start services manually:
-1. Copy the environment template: `cp .env.example .env` and update details.
-2. Initialize phpLiteAdmin: `cd phpliteadmin && bash setup.sh`.
-3. Create the database directory for Web UI: `mkdir -p webui/data && chmod 777 webui/data`.
-4. Start core services: `docker compose up -d`.
-5. Start Web UI: `docker compose -f webui/docker-compose.yml up -d --build`.
+A lightweight, decoupled, Git-tracked Docker infrastructure designed for a **4GB RAM Hetzner ARM64 (aarch64)** server. Runs core shared services (Caddy reverse proxy, PostgreSQL, Redis) and application stacks with strict security boundaries, isolated networking, and memory budgeting.
 
 ---
 
-## Directory Structure
+## 1. Architecture Overview
+
+This setup decouples the core platform services from individual application stacks using **external bridge networks**:
+
+- `proxy_net`: External bridge network connecting Caddy to web applications. Only Caddy publishes public ports (`80`, `443`). No application container exposes raw host ports.
+- `db_net`: External bridge network isolating shared databases (`shared_postgres`, `shared_redis`). Applications that require database access join this network, while purely frontend/stateless apps never have access to it.
 
 ```
-.
-├── docker-compose.yml          # Unified Docker Compose config
-├── traefik/
-│   ├── traefik.yml            # Local Traefik config
-│   ├── traefik.prod.yml       # Production Traefik config
-│   └── dynamic.yml            # Dynamic middleware config
-├── clients/
-│   ├── client1/               # Client 1
-│   │   ├── Dockerfile
-│   │   ├── docker-compose.yml
-│   │   ├── nginx.conf
-│   │   └── [application files]
-│   └── client2/               # Client 2 (add as needed)
-├── mysql/
-│   ├── init/                  # SQL initialization scripts
-│   └── README.md              # MySQL documentation
-├── ssl/                       # SSL certificates (gitignored)
-├── logs/                      # Logs (gitignored)
-└── .env                       # Environment variables (gitignored)
+                          [ Public Internet ]
+                                   │
+                           Ports 80 / 443 / 443(udp)
+                                   ▼
+                         ┌───────────────────┐
+                         │   caddy (proxy)   │ (mem_limit: 128MB)
+                         └─────────┬─────────┘
+                                   │
+              ┌────────────────────┴────────────────────┐
+              │               proxy_net                 │
+              ▼                                         ▼
+   ┌─────────────────────┐                   ┌─────────────────────┐
+   │    gitea (app)      │                   │ uptime_kuma (app)   │
+   │  (mem_limit: 350MB) │                   │ (mem_limit: 256MB)  │
+   └──────────┬──────────┘                   └─────────────────────┘
+              │
+              │                 db_net
+              └───────────┬─────────────────┐
+                          ▼                 ▼
+               ┌─────────────────────┐  ┌─────────────────────┐
+               │   shared_postgres   │  │    shared_redis     │
+               │ (mem_limit: 512MB)  │  │ (mem_limit: 150MB)  │
+               └─────────────────────┘  └─────────────────────┘
 ```
 
-## Configuration
+### Memory Budget (4GB RAM VPS)
 
-### Local Development vs Production
+| Service | Target Limit | Description |
+| :--- | :--- | :--- |
+| **Caddy** | `128MB` | Automatic TLS reverse proxy (HTTP/2 & HTTP/3) |
+| **Shared PostgreSQL 16** | `512MB` | Tuned (`shared_buffers=256MB`, `work_mem=8MB`) |
+| **Shared Redis 7** | `150MB` | LRU cache (`maxmemory 128mb`) |
+| **Gitea** | `350MB` | Lightweight Git service |
+| **Uptime Kuma** | `256MB` | Monitoring dashboard |
+| **Host OS & Buffers** | `~2.6GB` | Kernel, page cache, headroom for new apps |
 
-All services are declared in a single, unified `docker-compose.yml` file. Behaviors are toggled seamlessly via your `.env` file (which can be configured automatically using the root `setup.sh` script):
+---
 
-- **Local Development Mode (`setup.sh` option 2):**
-  - Uses `traefik/traefik.yml` (HTTP only)
-  - Traefik dashboard is exposed publicly on port `8080`
-  - Container restart policies are disabled (`no`)
-  - phpMyAdmin automatically logs in using credentials defined in `.env`
-  
-- **Production Mode (`setup.sh` option 1):**
-  - Uses `traefik/traefik.prod.yml` (HTTPS enabled, automated Let's Encrypt SSL)
-  - Traefik dashboard is locked down securely to `127.0.0.1:8080` (requires SSH tunneling)
-  - Automatic container restarts are enabled (`unless-stopped`)
-  - phpMyAdmin forces users to login manually for safety
+## 2. Initial Server Setup
 
-### Adding a New Client
+### Step 1: Clone Repository
+On your Hetzner VPS:
+```bash
+git clone https://github.com/<your-username>/<your-repo>.git /opt/infrastructure
+cd /opt/infrastructure
+```
 
-1. Copy `clients/client1/` to `clients/your-client-name/`
-2. Update `docker-compose.yml`:
-   - Change service name and container name
-   - Update domain in Traefik labels
-3. Deploy: `cd clients/your-client-name && docker-compose up -d --build`
+### Step 2: Initialize Server Networks & Configs
+Run the initialization script. It creates `proxy_net` and `db_net` (if they do not already exist) and copies `.env.example` templates to `.env`:
+```bash
+./scripts/init-server.sh
+```
 
-See `clients/README.md` for detailed instructions.
+### Step 3: Configure Core Environment & DNS
+1. Edit the core infrastructure environment file and set a strong database password:
+   ```bash
+   nano core-infra/.env
+   ```
+2. Update DNS A/AAAA records for your domains (e.g., `git.example.com`, `status.example.com`) pointing to your Hetzner server IP.
+3. Edit `core-infra/Caddyfile` with your actual domain names and administrative email.
 
-## Environment Variables
+### Step 4: Start Core Infrastructure
+```bash
+cd core-infra
+docker compose up -d
+```
+Verify all core services are running and healthy:
+```bash
+docker compose ps
+```
 
-Create `.env` file (see `.env.example`):
+---
+
+## 3. Provisioning App Databases & Starting Stacks
+
+### Step 1: Provision an Isolated Database
+Use `scripts/create-db.sh` to create an isolated database and role on `shared_postgres`:
+```bash
+# Syntax: ./scripts/create-db.sh <app_name> <db_password>
+./scripts/create-db.sh gitea "GenerateStrongPasswordHere"
+```
+The script creates role `gitea`, database `gitea`, and grants all necessary schema privileges.
+
+### Step 2: Configure & Start Gitea
+1. Update `apps/gitea/.env` with the database password set above:
+   ```bash
+   nano apps/gitea/.env
+   ```
+2. Launch the Gitea container:
+   ```bash
+   cd apps/gitea
+   docker compose up -d
+   ```
+
+### Step 3: Start Uptime Kuma
+Uptime Kuma requires no database setup as it uses its own embedded storage on a named volume:
+```bash
+cd apps/uptime-kuma
+docker compose up -d
+```
+
+---
+
+## 4. How to Add a New App Stack
+
+To add any new application (e.g., `nextcloud`, `vaultwarden`, `plausible`):
+
+1. **Create directory**:
+   ```bash
+   mkdir -p apps/my-app
+   ```
+2. **Create `apps/my-app/docker-compose.yml`**:
+   - Do **NOT** expose host `ports:`.
+   - Connect to `proxy_net` (for web access) and `db_net` (if database is needed).
+   - Define a memory limit (e.g., `mem_limit: 256m`).
+3. **Provision database** (if needed):
+   ```bash
+   ./scripts/create-db.sh my_app "SecureAppDbPassword"
+   ```
+4. **Add reverse proxy block to `core-infra/Caddyfile`**:
+   ```caddyfile
+   app.example.com {
+       encode zstd gzip
+       reverse_proxy my_app:8080
+   }
+   ```
+5. **Reload Caddy without downtime** (see below).
+6. **Start the app**:
+   ```bash
+   cd apps/my-app && docker compose up -d
+   ```
+
+---
+
+## 5. Zero-Downtime Caddy Reload
+
+Whenever you modify `core-infra/Caddyfile` (e.g., adding routes, updating headers), **never restart Caddy**. Reload it dynamically with zero downtime:
 
 ```bash
-EMAIL=your-email@domain.com          # Required for SSL certificates
-TRAEFIK_LOG_LEVEL=INFO              # Optional
-
-# MySQL Configuration
-MYSQL_ROOT_PASSWORD=rootpassword     # MySQL root password
-MYSQL_DATABASE=app_db               # Default database name
-MYSQL_USER=app_user                 # MySQL user for applications
-MYSQL_PASSWORD=app_password         # MySQL user password
-MYSQL_PORT=3306                     # MySQL port (default: 3306)
+docker exec -w /etc/caddy caddy caddy reload
 ```
 
-## SSL Certificates
+Caddy validates the syntax before applying changes. If an error exists, the previous configuration remains active without dropping active connections.
 
-- Automatically managed by Let's Encrypt
-- Stored in `ssl/acme.json`
-- Auto-renewed before expiration
-- First certificate may take a few minutes to issue
+---
 
-## Troubleshooting
+## 6. Safe Production Maintenance & Git Workflow
 
-### Check Logs
+### Pulling Updates Safely
+Never edit tracked configuration files directly on the production host in a way that creates merge conflicts. Always use fast-forward pulls:
 
 ```bash
-# Traefik logs
-docker logs traefik
-
-# Client logs
-docker logs client1
-
-# File logs
-tail -f logs/traefik/traefik.log
+cd /opt/infrastructure
+git fetch origin
+git status
+git pull --ff-only origin main
 ```
 
-### Common Issues
-
-1. **SSL certificate errors:** Check email in `.env` and DNS records
-2. **404 errors:** Verify Traefik labels and container network
-3. **Connection refused:** Check if containers are running: `docker ps`
-
-## Database Support
-
-### MySQL (Isolated Databases)
-
-A shared MySQL container is available, but **each client has its own isolated database and credentials**:
-
-**Host:** `mysql` (container name)  
-**Port:** `3306`  
-**Database:** `{client_name}_db` (e.g., `client1_db`)  
-**Username:** `{client_name}_user` (e.g., `client1_user`)
-
-```php
-// Example for client1
-$pdo = new PDO('mysql:host=mysql;dbname=client1_db', 'client1_user', 'client1_password');
-```
-
-**Security:** Each client can only access their own database. Data is completely isolated between clients.
-
-**Adding a new client database:**
+If `core-infra/Caddyfile` changed, reload Caddy:
 ```bash
-cd mysql
-./add-client-db.sh client2
+docker exec -w /etc/caddy caddy caddy reload
 ```
 
-See **[mysql/README.md](mysql/README.md)** for detailed MySQL documentation.
-
-### SQLite
-
-Each client can use SQLite in their `database/` directory. See `clients/README.md` for details.
-
-## Backups
-
-Automated backup script with rclone integration and zstd compression.
-
-**Quick Start:**
+If a compose file changed, redeploy that specific stack:
 ```bash
-# Local backup only
-./backup.sh
-
-# Upload to rclone remote
-./backup.sh myremote:backups/sahajanand-server
+cd apps/<app_name>
+docker compose pull
+docker compose up -d
 ```
 
-The backup script automatically:
-- Discovers all clients
-- Backs up each client's MySQL database separately
-- Backs up each client's files (including SQLite databases)
-- Compresses with zstd
-- Organizes backups by client in separate directories
+### Checking Memory Usage
+Monitor your 4GB RAM utilization across all containers:
+```bash
+docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}"
+```
 
-See **[BACKUP.md](BACKUP.md)** for complete backup documentation, including restore procedures and automation setup.
+### Backing Up PostgreSQL Databases
+Create compressed database dumps without taking down the server:
+```bash
+# Dump a single app database
+docker exec -t shared_postgres pg_dump -U postgres gitea | gzip > ~/backups/gitea_$(date +%Y%m%d_%H%M%S).sql.gz
 
-## Web UI Management Interface
-
-Modern web-based interface for managing your entire infrastructure.
-
-**Access:**
-- Local: `http://webui.example.com`
-- Production: `https://webui.yourdomain.com`
-
-**Features:**
-- Dashboard with system overview
-- Client management (start, stop, restart containers)
-- Database management (create, view MySQL databases)
-- Backup management (create, restore, download backups)
-- System status (container management, logs)
-
-The Web UI is managed separately with its own docker-compose file. See [webui/README.md](webui/README.md) for setup instructions. Add `webui.example.com` to your `/etc/hosts` for local development.
-
-See **[webui/README.md](webui/README.md)** for detailed documentation.
-
-⚠️ **Security**: The Web UI includes comprehensive security features:
-- **Authentication required** (set up with `webui/setup-auth.sh`)
-- CSRF protection on all endpoints
-- Input validation and sanitization
-- Brute force protection
-- Security headers
-
-See **[webui/SECURITY.md](webui/SECURITY.md)** for complete security documentation.
-
-**Note**: The Web UI has Docker socket access, so authentication is critical!
-
-## Documentation
-
-- **[PRODUCTION.md](PRODUCTION.md)** - Complete production deployment guide
-- **[BACKUP.md](BACKUP.md)** - Backup and restore documentation
-- **[webui/README.md](webui/README.md)** - Web UI management interface documentation
-- **[ADMIN_TOOLS.md](ADMIN_TOOLS.md)** - phpMyAdmin and phpLiteAdmin documentation
-- **[clients/README.md](clients/README.md)** - Client setup and configuration
-- **[mysql/README.md](mysql/README.md)** - MySQL database documentation
-
-## License
-
-Distributed under the MIT License. See [LICENSE](LICENSE) for details.
-
+# Dump all databases
+docker exec -t shared_postgres pg_dumpall -U postgres | gzip > ~/backups/all_dbs_$(date +%Y%m%d_%H%M%S).sql.gz
+```
