@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Script: create-db.sh
-# Purpose: Provision an isolated PostgreSQL user, database, and permissions
-# Target: 4GB RAM Hetzner ARM64 Docker Infrastructure (shared_postgres)
+# Purpose: Provision an isolated MariaDB user, database, and permissions
+# Target: 4GB RAM Hetzner ARM64 Docker Infrastructure (shared_mariadb)
 # Usage: ./scripts/create-db.sh <app_name> <db_password>
 # ==============================================================================
 
@@ -57,18 +57,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CORE_ENV="${REPO_ROOT}/core-infra/.env"
 
-POSTGRES_ROOT_USER="postgres"
+MARIADB_ROOT_PASSWORD=""
 if [ -f "${CORE_ENV}" ]; then
-    # Safely extract POSTGRES_ROOT_USER if present
-    VAL=$(grep -E '^POSTGRES_ROOT_USER=' "${CORE_ENV}" | cut -d '=' -f2- | tr -d '"'"'" || true)
+    # Safely extract MARIADB_ROOT_PASSWORD if present
+    VAL=$(grep -E '^MARIADB_ROOT_PASSWORD=' "${CORE_ENV}" | cut -d '=' -f2- | tr -d '"'"'" || true)
     if [ -n "${VAL}" ]; then
-        POSTGRES_ROOT_USER="${VAL}"
+        MARIADB_ROOT_PASSWORD="${VAL}"
     fi
 fi
 
-CONTAINER_NAME="shared_postgres"
+CONTAINER_NAME="shared_mariadb"
 
-# Check if shared_postgres container is running
+# Check if shared_mariadb container is running
 if ! docker ps --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}$"; then
     log_error "Container '${CONTAINER_NAME}' is not currently running."
     log_error "Please start the core infrastructure first:"
@@ -76,52 +76,46 @@ if ! docker ps --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}$"; then
     exit 1
 fi
 
-log_info "Verifying PostgreSQL readiness inside '${CONTAINER_NAME}'..."
-if ! docker exec -i "${CONTAINER_NAME}" pg_isready -U "${POSTGRES_ROOT_USER}" >/dev/null 2>&1; then
-    log_error "PostgreSQL is running but not ready to accept connections yet."
+log_info "Verifying MariaDB readiness inside '${CONTAINER_NAME}'..."
+MYSQL_ADMIN_CMD="mariadb-admin"
+if ! docker exec "${CONTAINER_NAME}" which mariadb-admin >/dev/null 2>&1; then
+    MYSQL_ADMIN_CMD="mysqladmin"
+fi
+
+if ! docker exec -i "${CONTAINER_NAME}" ${MYSQL_ADMIN_CMD} ping -u root ${MARIADB_ROOT_PASSWORD:+-p"${MARIADB_ROOT_PASSWORD}"} --silent >/dev/null 2>&1; then
+    log_error "MariaDB is running but not ready to accept connections yet."
     exit 1
 fi
 
 # ------------------------------------------------------------------------------
-# 3. Provision Role & Database
+# 3. Provision Database, User & Privileges
 # ------------------------------------------------------------------------------
-log_info "Creating / Updating role '${APP_NAME}'..."
-docker exec -i "${CONTAINER_NAME}" psql -U "${POSTGRES_ROOT_USER}" -d postgres <<EOSQL >/dev/null
-DO \$\$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${APP_NAME}') THEN
-        CREATE ROLE "${APP_NAME}" WITH LOGIN PASSWORD '${DB_PASSWORD}';
-    ELSE
-        ALTER ROLE "${APP_NAME}" WITH PASSWORD '${DB_PASSWORD}';
-    END IF;
-END
-\$\$;
-EOSQL
-
-log_info "Checking if database '${APP_NAME}' exists..."
-DB_EXISTS=$(docker exec -i "${CONTAINER_NAME}" psql -U "${POSTGRES_ROOT_USER}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${APP_NAME}';" || true)
-
-if [ "${DB_EXISTS}" != "1" ]; then
-    log_info "Creating database '${APP_NAME}' owned by '${APP_NAME}'..."
-    docker exec -i "${CONTAINER_NAME}" psql -U "${POSTGRES_ROOT_USER}" -d postgres -c "CREATE DATABASE \"${APP_NAME}\" OWNER \"${APP_NAME}\";" >/dev/null
-else
-    log_info "Database '${APP_NAME}' already exists. Updating ownership..."
-    docker exec -i "${CONTAINER_NAME}" psql -U "${POSTGRES_ROOT_USER}" -d postgres -c "ALTER DATABASE \"${APP_NAME}\" OWNER TO \"${APP_NAME}\";" >/dev/null
+MYSQL_CLIENT_CMD="mariadb"
+if ! docker exec "${CONTAINER_NAME}" which mariadb >/dev/null 2>&1; then
+    MYSQL_CLIENT_CMD="mysql"
 fi
 
-log_info "Configuring privileges and schema ownership for '${APP_NAME}'..."
-docker exec -i "${CONTAINER_NAME}" psql -U "${POSTGRES_ROOT_USER}" -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE \"${APP_NAME}\" TO \"${APP_NAME}\";" >/dev/null
-# Grant schema permissions in Postgres 15+
-docker exec -i "${CONTAINER_NAME}" psql -U "${POSTGRES_ROOT_USER}" -d "${APP_NAME}" -c "GRANT ALL ON SCHEMA public TO \"${APP_NAME}\";" >/dev/null
+log_info "Provisioning database and user for '${APP_NAME}'..."
+
+# Escape single quotes in password for SQL string literal
+ESCAPED_DB_PASSWORD="${DB_PASSWORD//\'/\'\'}"
+
+docker exec -i "${CONTAINER_NAME}" ${MYSQL_CLIENT_CMD} -u root ${MARIADB_ROOT_PASSWORD:+-p"${MARIADB_ROOT_PASSWORD}"} <<EOSQL >/dev/null
+CREATE DATABASE IF NOT EXISTS \`${APP_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${APP_NAME}'@'%' IDENTIFIED BY '${ESCAPED_DB_PASSWORD}';
+ALTER USER '${APP_NAME}'@'%' IDENTIFIED BY '${ESCAPED_DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON \`${APP_NAME}\`.* TO '${APP_NAME}'@'%';
+FLUSH PRIVILEGES;
+EOSQL
 
 # ------------------------------------------------------------------------------
 # 4. Success Summary
 # ------------------------------------------------------------------------------
 echo ""
-log_success "Database '${APP_NAME}' and role '${APP_NAME}' successfully provisioned!"
+log_success "Database '${APP_NAME}' and user '${APP_NAME}' successfully provisioned!"
 echo -e "${CLR_BOLD}App Connection Details:${CLR_RESET}"
-echo -e "  Host:     ${CLR_CYAN}shared_postgres${CLR_RESET}"
-echo -e "  Port:     ${CLR_CYAN}5432${CLR_RESET}"
+echo -e "  Host:     ${CLR_CYAN}shared_mariadb${CLR_RESET}"
+echo -e "  Port:     ${CLR_CYAN}3306${CLR_RESET}"
 echo -e "  Database: ${CLR_CYAN}${APP_NAME}${CLR_RESET}"
 echo -e "  Username: ${CLR_CYAN}${APP_NAME}${CLR_RESET}"
-echo -e "  URI:      ${CLR_CYAN}postgresql://${APP_NAME}:<password>@shared_postgres:5432/${APP_NAME}${CLR_RESET}"
+echo -e "  URI:      ${CLR_CYAN}mysql://${APP_NAME}:<password>@shared_mariadb:3306/${APP_NAME}${CLR_RESET}"

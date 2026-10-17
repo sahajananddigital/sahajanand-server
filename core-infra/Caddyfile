@@ -2,8 +2,8 @@
 # Global Options
 # ==============================================================================
 {
-    # Optional: Set your email for Let's Encrypt automated SSL registration
-    # email admin@example.com
+	# Optional: Set your email for Let's Encrypt automated SSL registration
+	# email admin@example.com
 }
 
 # ==============================================================================
@@ -11,12 +11,17 @@
 # Containers communicate across the external 'proxy_net' bridge network.
 # ==============================================================================
 
-git.example.com {
-    encode zstd gzip
-    reverse_proxy gitea:3000
+git.example.com, git.localhost, http://git.localhost {
+	encode zstd gzip
+	reverse_proxy gitea:3000
 }
 
-status.example.com {
-    encode zstd gzip
-    reverse_proxy uptime_kuma:3001
+status.example.com, status.localhost, http://status.localhost {
+	encode zstd gzip
+	reverse_proxy uptime_kuma:3001
+}
+
+wa.example.com, wa.localhost, http://wa.localhost {
+	encode zstd gzip
+	reverse_proxy openwa:2785
 }

@@ -15,31 +15,30 @@ services:
       - proxy_net
     mem_limit: 128m
 
-  shared_postgres:
-    image: postgres:16-alpine
-    container_name: shared_postgres
+  shared_mariadb:
+    image: mariadb:11
+    container_name: shared_mariadb
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_ROOT_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD}
-      PGDATA: /var/lib/postgresql/data/pgdata
-    command: >
-      postgres
-      -c shared_buffers=256MB
-      -c effective_cache_size=768MB
-      -c work_mem=8MB
-      -c maintenance_work_mem=64MB
-      -c max_connections=100
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_AUTO_UPGRADE: "1"
+    command:
+      - mariadbd
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=256M
+      - --innodb-log-file-size=64M
+      - --max-connections=100
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mariadb_data:/var/lib/mysql
     networks:
       - db_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ROOT_USER:-postgres}"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 15s
     mem_limit: 512m
 
   shared_redis:
@@ -67,5 +66,5 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
-  postgres_data:
+  mariadb_data:
   redis_data:

@@ -1,6 +1,6 @@
 # Hetzner ARM64 Infrastructure as Code (IaC)
 
-A lightweight, decoupled, Git-tracked Docker infrastructure designed for a **4GB RAM Hetzner ARM64 (aarch64)** server. Runs core shared services (Caddy reverse proxy, PostgreSQL, Redis) and application stacks with strict security boundaries, isolated networking, and memory budgeting.
+A lightweight, decoupled, Git-tracked Docker infrastructure designed for a **4GB RAM Hetzner ARM64 (aarch64)** server. Runs core shared services (Caddy reverse proxy, MariaDB, Redis) and application stacks with strict security boundaries, isolated networking, and memory budgeting.
 
 ---
 
@@ -9,7 +9,7 @@ A lightweight, decoupled, Git-tracked Docker infrastructure designed for a **4GB
 This setup decouples the core platform services from individual application stacks using **external bridge networks**:
 
 - `proxy_net`: External bridge network connecting Caddy to web applications. Only Caddy publishes public ports (`80`, `443`). No application container exposes raw host ports.
-- `db_net`: External bridge network isolating shared databases (`shared_postgres`, `shared_redis`). Applications that require database access join this network, while purely frontend/stateless apps never have access to it.
+- `db_net`: External bridge network isolating shared databases (`shared_mariadb`, `shared_redis`). Applications that require database access join this network, while purely frontend/stateless apps never have access to it.
 
 ```
                           [ Public Internet ]
@@ -32,7 +32,7 @@ This setup decouples the core platform services from individual application stac
               └───────────┬─────────────────┐
                           ▼                 ▼
                ┌─────────────────────┐  ┌─────────────────────┐
-               │   shared_postgres   │  │    shared_redis     │
+               │   shared_mariadb    │  │    shared_redis     │
                │ (mem_limit: 512MB)  │  │ (mem_limit: 150MB)  │
                └─────────────────────┘  └─────────────────────┘
 ```
@@ -42,7 +42,7 @@ This setup decouples the core platform services from individual application stac
 | Service | Target Limit | Description |
 | :--- | :--- | :--- |
 | **Caddy** | `128MB` | Automatic TLS reverse proxy (HTTP/2 & HTTP/3) |
-| **Shared PostgreSQL 16** | `512MB` | Tuned (`shared_buffers=256MB`, `work_mem=8MB`) |
+| **Shared MariaDB 11** | `512MB` | Tuned (`innodb_buffer_pool_size=256M`, `max_connections=100`) |
 | **Shared Redis 7** | `150MB` | LRU cache (`maxmemory 128mb`) |
 | **Gitea** | `350MB` | Lightweight Git service |
 | **Uptime Kuma** | `256MB` | Monitoring dashboard |
@@ -66,7 +66,7 @@ Run the initialization script. It creates `proxy_net` and `db_net` (if they do n
 ```
 
 ### Step 3: Configure Core Environment & DNS
-1. Edit the core infrastructure environment file and set a strong database password:
+1. Edit the core infrastructure environment file and set a strong database root password:
    ```bash
    nano core-infra/.env
    ```
@@ -88,12 +88,12 @@ docker compose ps
 ## 3. Provisioning App Databases & Starting Stacks
 
 ### Step 1: Provision an Isolated Database
-Use `scripts/create-db.sh` to create an isolated database and role on `shared_postgres`:
+Use `scripts/create-db.sh` to create an isolated database and user on `shared_mariadb`:
 ```bash
 # Syntax: ./scripts/create-db.sh <app_name> <db_password>
 ./scripts/create-db.sh gitea "GenerateStrongPasswordHere"
 ```
-The script creates role `gitea`, database `gitea`, and grants all necessary schema privileges.
+The script creates database `gitea`, user `gitea`@`%`, and grants all necessary database privileges.
 
 ### Step 2: Configure & Start Gitea
 1. Update `apps/gitea/.env` with the database password set above:
@@ -112,6 +112,11 @@ Uptime Kuma requires no database setup as it uses its own embedded storage on a 
 cd apps/uptime-kuma
 docker compose up -d
 ```
+
+### Local Testing URLs
+When running locally on Docker Desktop, macOS and all modern browsers resolve any `*.localhost` domain to `127.0.0.1` automatically without editing `/etc/hosts`:
+- **Gitea**: [http://git.localhost](http://git.localhost)
+- **Uptime Kuma**: [http://status.localhost](http://status.localhost)
 
 ---
 
@@ -188,12 +193,12 @@ Monitor your 4GB RAM utilization across all containers:
 docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}"
 ```
 
-### Backing Up PostgreSQL Databases
+### Backing Up MariaDB Databases
 Create compressed database dumps without taking down the server:
 ```bash
 # Dump a single app database
-docker exec -t shared_postgres pg_dump -U postgres gitea | gzip > ~/backups/gitea_$(date +%Y%m%d_%H%M%S).sql.gz
+docker exec -t shared_mariadb mariadb-dump -u root -p"<root_password>" gitea | gzip > ~/backups/gitea_$(date +%Y%m%d_%H%M%S).sql.gz
 
 # Dump all databases
-docker exec -t shared_postgres pg_dumpall -U postgres | gzip > ~/backups/all_dbs_$(date +%Y%m%d_%H%M%S).sql.gz
+docker exec -t shared_mariadb mariadb-dump -u root -p"<root_password>" --all-databases | gzip > ~/backups/all_dbs_$(date +%Y%m%d_%H%M%S).sql.gz
 ```

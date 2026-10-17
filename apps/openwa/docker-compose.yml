@@ -1,0 +1,29 @@
+services:
+  openwa:
+    image: rmyndharis/openwa:latest
+    container_name: openwa
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=2785
+      - TZ=${TZ:-UTC}
+      - DATABASE_TYPE=sqlite
+      - DATABASE_SYNCHRONIZE=true
+      - AUTO_START_SESSIONS=true
+      - SESSION_DATA_PATH=/app/data/sessions
+      - STORAGE_TYPE=local
+      - STORAGE_LOCAL_PATH=/app/data/media
+      - PLUGINS_DIR=/app/data/plugins
+    volumes:
+      - openwa_data:/app/data
+    networks:
+      - proxy_net
+    shm_size: 256m
+    mem_limit: 512m
+
+networks:
+  proxy_net:
+    external: true
+
+volumes:
+  openwa_data:

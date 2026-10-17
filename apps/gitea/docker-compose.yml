@@ -6,8 +6,9 @@ services:
     environment:
       - USER_UID=1000
       - USER_GID=1000
-      - GITEA__database__DB_TYPE=postgres
-      - GITEA__database__HOST=shared_postgres:5432
+      - TZ=${TZ:-UTC}
+      - GITEA__database__DB_TYPE=mysql
+      - GITEA__database__HOST=shared_mariadb:3306
       - GITEA__database__NAME=${GITEA_DB_NAME:-gitea}
       - GITEA__database__USER=${GITEA_DB_USER:-gitea}
       - GITEA__database__PASSWD=${GITEA_DB_PASSWORD}
@@ -18,8 +19,6 @@ services:
       - GITEA__server__SSH_LISTEN_PORT=22
     volumes:
       - gitea_data:/data
-      - /etc/timezone:/etc/timezone:ro
-      - /etc/localtime:/etc/localtime:ro
     networks:
       - proxy_net
       - db_net
