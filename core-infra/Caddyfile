@@ -3,7 +3,7 @@
 # ==============================================================================
 {
 	# Optional: Set your email for Let's Encrypt automated SSL registration
-	# email admin@example.com
+	# email support@sahajananddigital.in
 }
 
 # ==============================================================================
@@ -11,17 +11,20 @@
 # Containers communicate across the external 'proxy_net' bridge network.
 # ==============================================================================
 
-git.example.com, git.localhost, http://git.localhost {
+# Gitea
+git.app.sahajananddigital.in, git.localhost, http://git.localhost {
 	encode zstd gzip
 	reverse_proxy gitea:3000
 }
 
-status.example.com, status.localhost, http://status.localhost {
+# Uptime Kuma
+status.app.sahajananddigital.in, status.localhost, http://status.localhost {
 	encode zstd gzip
 	reverse_proxy uptime_kuma:3001
 }
 
-wa.example.com, wa.localhost, http://wa.localhost {
+# OpenWA
+wa.app.sahajananddigital.in, wa.localhost, http://wa.localhost {
 	encode zstd gzip
 	reverse_proxy openwa:2785
 }

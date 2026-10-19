@@ -10,6 +10,7 @@ services:
       - DATABASE_TYPE=sqlite
       - DATABASE_SYNCHRONIZE=true
       - AUTO_START_SESSIONS=true
+      - CSP_UPGRADE_INSECURE_REQUESTS=${CSP_UPGRADE_INSECURE_REQUESTS:-false}
       - SESSION_DATA_PATH=/app/data/sessions
       - STORAGE_TYPE=local
       - STORAGE_LOCAL_PATH=/app/data/media

@@ -20,13 +20,13 @@ This setup decouples the core platform services from individual application stac
                          │   caddy (proxy)   │ (mem_limit: 128MB)
                          └─────────┬─────────┘
                                    │
-              ┌────────────────────┴────────────────────┐
+              ┌────────────────────┼────────────────────┐
               │               proxy_net                 │
-              ▼                                         ▼
-   ┌─────────────────────┐                   ┌─────────────────────┐
-   │    gitea (app)      │                   │ uptime_kuma (app)   │
-   │  (mem_limit: 350MB) │                   │ (mem_limit: 256MB)  │
-   └──────────┬──────────┘                   └─────────────────────┘
+              ▼                    ▼                    ▼
+   ┌─────────────────────┐┌─────────────────┐┌─────────────────────┐
+   │    gitea (app)      ││ uptime_kuma(app)││   openwa (app)      │
+   │  (mem_limit: 350MB) ││(mem_limit:256MB)││ (mem_limit: 512MB)  │
+   └──────────┬──────────┘└─────────────────┘└─────────────────────┘
               │
               │                 db_net
               └───────────┬─────────────────┐
@@ -45,8 +45,9 @@ This setup decouples the core platform services from individual application stac
 | **Shared MariaDB 11** | `512MB` | Tuned (`innodb_buffer_pool_size=256M`, `max_connections=100`) |
 | **Shared Redis 7** | `150MB` | LRU cache (`maxmemory 128mb`) |
 | **Gitea** | `350MB` | Lightweight Git service |
-| **Uptime Kuma** | `256MB` | Monitoring dashboard |
-| **Host OS & Buffers** | `~2.6GB` | Kernel, page cache, headroom for new apps |
+| **Uptime Kuma 2** | `256MB` | Monitoring dashboard |
+| **OpenWA** | `512MB` | WhatsApp REST API gateway & web dashboard |
+| **Host OS & Buffers** | `~2.1GB` | Kernel, page cache, headroom for new apps |
 
 ---
 
@@ -70,8 +71,8 @@ Run the initialization script. It creates `proxy_net` and `db_net` (if they do n
    ```bash
    nano core-infra/.env
    ```
-2. Update DNS A/AAAA records for your domains (e.g., `git.example.com`, `status.example.com`) pointing to your Hetzner server IP.
-3. Edit `core-infra/Caddyfile` with your actual domain names and administrative email.
+2. In Cloudflare DNS, add a wildcard record: **Type `A`**, **Name `*.app`**, pointing to your Hetzner server IP, set to **DNS only (Grey Cloud)**. This covers all apps under `*.app.sahajananddigital.in` without touching your main website (`sahajananddigital.in`).
+3. Core routing is preconfigured in `core-infra/Caddyfile` for `git.app.sahajananddigital.in`, `status.app.sahajananddigital.in`, and `wa.app.sahajananddigital.in`.
 
 ### Step 4: Start Core Infrastructure
 ```bash
@@ -113,10 +114,48 @@ cd apps/uptime-kuma
 docker compose up -d
 ```
 
+### Step 4: Start OpenWA (WhatsApp API Gateway & Dashboard)
+OpenWA provides a WhatsApp REST API gateway and a built-in web management dashboard. It uses embedded SQLite storage and local media persistence:
+
+```bash
+cd apps/openwa
+docker compose up -d
+```
+
+#### Files Structure
+- **`apps/openwa/docker-compose.yml`**:
+  - Image: `rmyndharis/openwa:latest` (Multi-arch native ARM64 & AMD64).
+  - Storage: Persistent SQLite database & media files on named volume `openwa_data:/app/data`.
+  - Network: Connected to external bridge `proxy_net` (no host ports exposed).
+  - Limits: `mem_limit: 512m`, `shm_size: 256m` (for headless browser stability).
+  - Plain-HTTP Dashboard Compatibility: `CSP_UPGRADE_INSECURE_REQUESTS=false` for local `*.localhost` access.
+- **`apps/openwa/.env.example`**: Declares `OPENWA_DOMAIN=wa.example.com`.
+- **`core-infra/Caddyfile`**: Configured with reverse proxy blocks for `wa.example.com`, `wa.localhost`, and `http://wa.localhost` pointing to `openwa:2785`.
+
+#### Admin API Key
+On its initial startup, OpenWA generates a secure admin API key and saves it to the persistent data volume. Retrieve it at any time with:
+```bash
+docker exec openwa cat /app/data/.api-key
+```
+
+#### How to Access OpenWA Locally
+
+| Interface | Local URL |
+| :--- | :--- |
+| **Web Dashboard** | [http://wa.localhost](http://wa.localhost) |
+| **Swagger REST API Docs** | [http://wa.localhost/api/docs](http://wa.localhost/api/docs) |
+| **Direct REST API** | [http://wa.localhost/api](http://wa.localhost/api) |
+
+#### How to Link Your WhatsApp Account
+1. Open [http://wa.localhost](http://wa.localhost) in your browser.
+2. Enter the admin API key retrieved above to log in to the dashboard.
+3. Create/select a session and scan the QR code with WhatsApp (`Settings` > `Linked devices` > `Link a device`).
+
 ### Local Testing URLs
 When running locally on Docker Desktop, macOS and all modern browsers resolve any `*.localhost` domain to `127.0.0.1` automatically without editing `/etc/hosts`:
 - **Gitea**: [http://git.localhost](http://git.localhost)
 - **Uptime Kuma**: [http://status.localhost](http://status.localhost)
+- **OpenWA**: [http://wa.localhost](http://wa.localhost)
 
 ---
 
