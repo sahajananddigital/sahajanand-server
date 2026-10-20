@@ -48,6 +48,7 @@ This setup decouples the core platform services from individual application stac
 | **Uptime Kuma 2** | `256MB` | Monitoring dashboard |
 | **OpenWA** | `512MB` | WhatsApp REST API gateway & web dashboard |
 | **Invoice Ninja** | `512MB` | Open-source invoicing, billing & payments on shared MariaDB + Redis |
+| **FreeScout** | `350MB` | Lightweight help desk & shared mailbox on shared MariaDB |
 | **Host OS & Buffers** | `~1.5GB` | Kernel, page cache, headroom for new apps |
 
 ---
@@ -266,12 +267,44 @@ To migrate your complete Invoice Ninja instance (all 46 invoices, 45 payments, 2
   docker compose up -d
   ```
 
+### Step 5: Configure & Start FreeScout (Help Desk & Shared Inbox)
+
+FreeScout is a lightweight, open-source help desk and shared inbox (Zendesk / Help Scout alternative) powered by PHP, Nginx, and MariaDB.
+
+1. **Provision FreeScout database on `shared_mariadb`**:
+   ```bash
+   ./scripts/create-db.sh freescout "YourSecureFreeScoutDbPassword"
+   ```
+2. **Configure environment**:
+   ```bash
+   cp apps/freescout/.env.example apps/freescout/.env
+   nano apps/freescout/.env
+   ```
+   Set `DB_PASS` to the password generated in step 1, configure `APP_URL`, and set `ADMIN_EMAIL` / `ADMIN_PASS`.
+3. **Launch the stack**:
+   ```bash
+   cd apps/freescout
+   docker compose up -d
+   ```
+4. **Follow initialization**:
+   ```bash
+   docker logs -f freescout
+   ```
+
+#### Access & Authentication
+
+| Interface | URL | Default Credentials |
+| :--- | :--- | :--- |
+| **Local Environment** | [http://help.localhost](http://help.localhost) | Username: `admin@sahajananddigital.in` / Password: configured in `.env` |
+| **Production Environment** | `https://help.app.sahajananddigital.in` | Username: `admin@sahajananddigital.in` / Password: configured in `.env` |
+
 ### Local Testing URLs
 When running locally on Docker Desktop, macOS and all modern browsers resolve any `*.localhost` domain to `127.0.0.1` automatically without editing `/etc/hosts`:
 - **Gitea**: [http://git.localhost](http://git.localhost)
 - **Uptime Kuma**: [http://status.localhost](http://status.localhost)
 - **OpenWA**: [http://wa.localhost](http://wa.localhost)
 - **Invoice Ninja**: [http://erp.localhost](http://erp.localhost) or [http://invoice.localhost](http://invoice.localhost)
+- **FreeScout**: [http://help.localhost](http://help.localhost)
 
 ---
 
@@ -390,13 +423,23 @@ docker exec -it invoiceninja_app php artisan optimize:clear
 
 ## 6. Zero-Downtime Caddy Reload
 
-Whenever you modify `core-infra/Caddyfile` (e.g., adding routes, updating headers), **never restart Caddy**. Reload it dynamically with zero downtime:
+Whenever you modify `core-infra/Caddyfile` (e.g., adding routes, updating headers), **never restart Caddy**. Reload it dynamically with zero downtime using [`scripts/reload-caddy.sh`](file:///Users/multidots/Documents/Github/sahajanand-server/scripts/reload-caddy.sh):
 
 ```bash
-docker exec -w /etc/caddy caddy caddy reload
+# Safely validate syntax and reload Caddy with zero downtime
+./scripts/reload-caddy.sh
+
+# Validate syntax only without reloading (dry-run pre-flight check)
+./scripts/reload-caddy.sh --check
+
+# Stream recent Caddy reverse proxy and operational logs
+./scripts/reload-caddy.sh --logs
+
+# Inspect active Let's Encrypt certificates and expiry dates
+./scripts/reload-caddy.sh --certs
 ```
 
-Caddy validates the syntax before applying changes. If an error exists, the previous configuration remains active without dropping active connections.
+The script automatically executes `caddy validate` inside the container first. If a syntax error is detected, reload is aborted and the exact error is displayed, preventing any disruption to live production traffic.
 
 ---
 
@@ -430,7 +473,18 @@ docker compose up -d
 
 A quick reference cheat sheet for maintaining and administering this Docker infrastructure on a 4GB RAM VPS.
 
-### 7.1 Service & Container Management
+### 8.1 Essential Management & Automation Scripts
+
+| Script | Purpose | Example Usage |
+| :--- | :--- | :--- |
+| [`scripts/reload-caddy.sh`](file:///Users/multidots/Documents/Github/sahajanand-server/scripts/reload-caddy.sh) | Zero-downtime Caddy reload with pre-flight syntax validation | `./scripts/reload-caddy.sh` |
+| [`scripts/server-status.sh`](file:///Users/multidots/Documents/Github/sahajanand-server/scripts/server-status.sh) | Health dashboard (host RAM, disk, DB/Redis online check, container statuses) | `./scripts/server-status.sh` |
+| [`scripts/clean-docker.sh`](file:///Users/multidots/Documents/Github/sahajanand-server/scripts/clean-docker.sh) | Safe Docker disk space cleanup (reclaims build cache, dangling images) | `./scripts/clean-docker.sh --deep` |
+| [`scripts/update-app.sh`](file:///Users/multidots/Documents/Github/sahajanand-server/scripts/update-app.sh) | Zero-downtime updates for any app stack or all stacks sequentially | `./scripts/update-app.sh freescout` |
+| [`scripts/backup-rclone.sh`](file:///Users/multidots/Documents/Github/sahajanand-server/scripts/backup-rclone.sh) | Automated offsite Google Drive backups with retention management | `./scripts/backup-rclone.sh` |
+| [`scripts/create-db.sh`](file:///Users/multidots/Documents/Github/sahajanand-server/scripts/create-db.sh) | Provision isolated MariaDB database & user | `./scripts/create-db.sh myapp "pass"` |
+
+### 8.2 Service & Container Management
 
 ```bash
 # View all running containers with status and ports
@@ -449,7 +503,7 @@ docker restart <container_name>
 cd apps/<app_name> && docker compose down
 ```
 
-### 7.2 MariaDB Operations (`shared_mariadb`)
+### 8.3 MariaDB Operations (`shared_mariadb`)
 
 ```bash
 # Open interactive MariaDB root SQL shell
@@ -478,23 +532,20 @@ gunzip < ~/backups/<dbname>_backup.sql.gz | docker exec -i shared_mariadb mariad
 docker exec -it shared_mariadb mariadbadmin -u root -p processlist
 ```
 
-### 7.3 Caddy Reverse Proxy & TLS (`caddy`)
+### 8.4 Caddy Reverse Proxy & TLS (`caddy`)
 
 ```bash
-# Validate Caddyfile syntax before reloading (catches errors early)
-docker exec -w /etc/caddy caddy caddy validate
-
-# Reload configuration dynamically with ZERO downtime (never drops connections)
-docker exec -w /etc/caddy caddy caddy reload
+# Validate Caddyfile syntax and reload with zero downtime
+./scripts/reload-caddy.sh
 
 # Stream live HTTP access and reverse proxy routing logs
 docker logs -f --tail 100 caddy
 
 # Inspect active Let's Encrypt certificates stored by Caddy
-docker exec caddy ls -la /data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/
+./scripts/reload-caddy.sh --certs
 ```
 
-### 7.4 Redis Cache Operations (`shared_redis`)
+### 8.5 Redis Cache Operations (`shared_redis`)
 
 ```bash
 # Open interactive Redis CLI
@@ -508,7 +559,20 @@ docker exec -it shared_redis redis-cli info stats
 docker exec -it shared_redis redis-cli flushdb
 ```
 
-### 7.5 Application-Specific CLI Cheat Sheet
+### 8.6 Application-Specific CLI Cheat Sheet
+
+#### FreeScout (`freescout`)
+```bash
+# View FreeScout container and PHP-FPM logs
+docker logs --tail 100 freescout
+
+# Run Artisan maintenance commands
+docker exec -it freescout php artisan freescout:clear-cache
+docker exec -it freescout php artisan freescout:check-app
+
+# Inspect persistent storage directory (attachments, modules, uploads)
+docker exec freescout ls -la /data
+```
 
 #### Invoice Ninja (`invoiceninja_app`)
 ```bash
@@ -556,21 +620,17 @@ docker restart openwa
 docker exec -it uptime_kuma node extra/reset-password.js
 ```
 
-### 7.6 Host VPS Maintenance & Disk Pruning
+### 8.7 Host VPS Maintenance & Disk Pruning
 
-On a 4GB RAM VPS with limited SSD storage (e.g. 40GB–80GB), dangling container images and build caches can gradually fill the disk.
+On a 4GB RAM VPS with limited SSD storage (e.g. 40GB–80GB), dangling container images and build caches can gradually fill the disk. Use the safe automated cleanup script:
 
 ```bash
-# Inspect Docker disk space utilization across images, containers, and volumes
-docker system df
+# Safely prune build caches, dangling layers, and stopped containers
+./scripts/clean-docker.sh
 
-# Safe cleanup: removes stopped containers, unused networks, and dangling images
-docker system prune -f
+# Deep clean: also prune unused images older than 7 days (168 hours)
+./scripts/clean-docker.sh --deep
 
-# Deep image prune: safely removes unused images older than 7 days (168 hours)
-docker image prune -a --filter "until=168h" -f
-
-# Monitor host RAM, swap, and disk space
-free -h
-df -h /
+# Check system health dashboard
+./scripts/server-status.sh
 ```

@@ -186,6 +186,18 @@ fi
 IN_DB_SIZE="$(du -h "${IN_DB_FILE}" | cut -f1)"
 log_success "  [✓] invoiceninja.sql.gz (${IN_DB_SIZE})"
 
+# FreeScout dedicated dump (if exists)
+if docker exec -i "${MARIADB_CONTAINER}" mariadb -u root -p"${MARIADB_ROOT_PASSWORD}" -e "SHOW DATABASES LIKE 'freescout';" | grep -q "freescout"; then
+    FS_DB_FILE="${STAGING_DIR}/database/freescout_${TIMESTAMP}.sql.gz"
+    log_info "  -> Dumping 'freescout' database..."
+    docker exec "${MARIADB_CONTAINER}" mariadb-dump \
+        -u root -p"${MARIADB_ROOT_PASSWORD}" \
+        --single-transaction --quick freescout | gzip -9 > "${FS_DB_FILE}"
+    if [ -s "${FS_DB_FILE}" ]; then
+        log_success "  [✓] freescout.sql.gz ($(du -h "${FS_DB_FILE}" | cut -f1))"
+    fi
+fi
+
 # Full instance dump (all databases)
 ALL_DB_FILE="${STAGING_DIR}/database/all_databases_${TIMESTAMP}.sql.gz"
 log_info "  -> Dumping all databases (--all-databases)..."
@@ -220,6 +232,18 @@ if [ "${DB_ONLY}" = false ]; then
         log_success "  [✓] invoiceninja_storage.tar.gz (${IN_STORAGE_SIZE})"
     else
         log_warn "Invoice Ninja app container '${INVOICENINJA_CONTAINER}' not running; skipping storage archive."
+    fi
+
+    # FreeScout Data (if running)
+    if docker ps --format '{{.Names}}' | grep -q "^freescout$"; then
+        FS_STORAGE_FILE="${STAGING_DIR}/storage/freescout_data_${TIMESTAMP}.tar.gz"
+        log_info "Archiving FreeScout persistent data..."
+        docker run --rm -v freescout_freescout_data:/data:ro alpine tar -czf - -C /data . > "${FS_STORAGE_FILE}" 2>/dev/null || true
+        if [ -s "${FS_STORAGE_FILE}" ]; then
+            log_success "  [✓] freescout_data.tar.gz ($(du -h "${FS_STORAGE_FILE}" | cut -f1))"
+        else
+            rm -f "${FS_STORAGE_FILE}"
+        fi
     fi
 
     # OpenWA Data (if running and not skipped)

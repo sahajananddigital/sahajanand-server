@@ -1,0 +1,24 @@
+services:
+  freescout:
+    image: nfrastack/freescout:latest
+    container_name: freescout
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - freescout_data:/data
+      - freescout_logs:/logs
+    networks:
+      - proxy_net
+      - db_net
+    mem_limit: 350m
+
+networks:
+  proxy_net:
+    external: true
+  db_net:
+    external: true
+
+volumes:
+  freescout_data:
+  freescout_logs:

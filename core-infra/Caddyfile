@@ -34,3 +34,9 @@ invoice.app.sahajananddigital.in, invoice.localhost, http://invoice.localhost, e
 	encode zstd gzip
 	reverse_proxy invoiceninja_server:80
 }
+
+# FreeScout (Help Desk & Shared Inbox)
+help.app.sahajananddigital.in, support.app.sahajananddigital.in, help.localhost, http://help.localhost {
+	encode zstd gzip
+	reverse_proxy freescout:80
+}
