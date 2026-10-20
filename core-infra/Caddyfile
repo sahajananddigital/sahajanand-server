@@ -28,3 +28,9 @@ wa.app.sahajananddigital.in, wa.localhost, http://wa.localhost {
 	encode zstd gzip
 	reverse_proxy openwa:2785
 }
+
+# Invoice Ninja (Invoicing & Billing)
+invoice.app.sahajananddigital.in, invoice.localhost, http://invoice.localhost, erp.app.sahajananddigital.in, erp.localhost, http://erp.localhost {
+	encode zstd gzip
+	reverse_proxy invoiceninja_server:80
+}

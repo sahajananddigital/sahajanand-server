@@ -1,0 +1,41 @@
+services:
+  invoiceninja_server:
+    image: nginx:alpine
+    container_name: invoiceninja_server
+    restart: unless-stopped
+    volumes:
+      - ./in-vhost.conf:/etc/nginx/conf.d/default.conf:ro
+      - invoiceninja_public:/var/www/html/public:ro
+      - invoiceninja_storage:/var/www/html/storage:ro
+    depends_on:
+      - invoiceninja_app
+    networks:
+      - proxy_net
+      - ninja_net
+    mem_limit: 64m
+
+  invoiceninja_app:
+    image: invoiceninja/invoiceninja-debian:latest
+    container_name: invoiceninja_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - invoiceninja_public:/var/www/html/public
+      - invoiceninja_storage:/var/www/html/storage
+    networks:
+      - db_net
+      - ninja_net
+    mem_limit: 512m
+
+networks:
+  proxy_net:
+    external: true
+  db_net:
+    external: true
+  ninja_net:
+    driver: bridge
+
+volumes:
+  invoiceninja_public:
+  invoiceninja_storage:
