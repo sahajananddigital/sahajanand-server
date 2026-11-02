@@ -40,3 +40,10 @@ help.app.sahajananddigital.in, support.app.sahajananddigital.in, help.localhost,
 	encode zstd gzip
 	reverse_proxy freescout:80
 }
+
+# DocuSeal (Document Signing & e-Signatures)
+sign.app.sahajananddigital.in, docuseal.app.sahajananddigital.in, sign.localhost, http://sign.localhost, docuseal.localhost, http://docuseal.localhost {
+	encode zstd gzip
+	reverse_proxy docuseal:3000
+}
+

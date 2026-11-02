@@ -49,6 +49,7 @@ This setup decouples the core platform services from individual application stac
 | **OpenWA** | `512MB` | WhatsApp REST API gateway & web dashboard |
 | **Invoice Ninja** | `512MB` | Open-source invoicing, billing & payments on shared MariaDB + Redis |
 | **FreeScout** | `350MB` | Lightweight help desk & shared mailbox on shared MariaDB |
+| **DocuSeal** | `384MB` | Open-source document signing & digital signature platform on shared MariaDB |
 | **Host OS & Buffers** | `~1.5GB` | Kernel, page cache, headroom for new apps |
 
 ---
@@ -298,6 +299,37 @@ FreeScout is a lightweight, open-source help desk and shared inbox (Zendesk / He
 | **Local Environment** | [http://help.localhost](http://help.localhost) | Username: `admin@sahajananddigital.in` / Password: configured in `.env` |
 | **Production Environment** | `https://help.app.sahajananddigital.in` | Username: `admin@sahajananddigital.in` / Password: configured in `.env` |
 
+### Step 6: Configure & Start DocuSeal (Document Signing & e-Signatures)
+
+[DocuSeal](https://www.docuseal.com/) is an open-source, mobile-friendly document signing and digital signature platform (DocuSign / PandaDoc alternative) featuring PDF form building, automated signing requests, and secure audit trails.
+
+1. **Provision DocuSeal database on `shared_mariadb`**:
+   ```bash
+   ./scripts/create-db.sh docuseal "YourSecureDocuSealDbPassword"
+   ```
+2. **Configure environment**:
+   ```bash
+   cp apps/docuseal/.env.example apps/docuseal/.env # If not already created by init-server.sh
+   nano apps/docuseal/.env
+   ```
+   Set `DATABASE_URL` with your database password, verify `HOST`, and ensure `SECRET_KEY_BASE` is configured (generate with `openssl rand -hex 64`).
+3. **Launch the stack**:
+   ```bash
+   cd apps/docuseal
+   docker compose up -d
+   ```
+4. **Follow initialization**:
+   ```bash
+   docker logs -f docuseal
+   ```
+
+#### Access & Authentication
+
+| Interface | URL | Default Credentials |
+| :--- | :--- | :--- |
+| **Local Environment** | [http://sign.localhost](http://sign.localhost) or [http://docuseal.localhost](http://docuseal.localhost) | Created on first web visit |
+| **Production Environment** | `https://sign.app.sahajananddigital.in` or `https://docuseal.app.sahajananddigital.in` | Created on first web visit |
+
 ### Local Testing URLs
 When running locally on Docker Desktop, macOS and all modern browsers resolve any `*.localhost` domain to `127.0.0.1` automatically without editing `/etc/hosts`:
 - **Gitea**: [http://git.localhost](http://git.localhost)
@@ -305,6 +337,7 @@ When running locally on Docker Desktop, macOS and all modern browsers resolve an
 - **OpenWA**: [http://wa.localhost](http://wa.localhost)
 - **Invoice Ninja**: [http://erp.localhost](http://erp.localhost) or [http://invoice.localhost](http://invoice.localhost)
 - **FreeScout**: [http://help.localhost](http://help.localhost)
+- **DocuSeal**: [http://sign.localhost](http://sign.localhost) or [http://docuseal.localhost](http://docuseal.localhost)
 
 ---
 
@@ -346,9 +379,13 @@ A comprehensive backup script [`scripts/backup-rclone.sh`](file:///Users/multido
 ### What Gets Backed Up
 1. **MariaDB Databases**:
    - `database/invoiceninja_<timestamp>.sql.gz`: Dedicated single-transaction gzip dump of the `invoiceninja` database.
-   - `database/all_databases_<timestamp>.sql.gz`: Full dump of all databases across the MariaDB instance (`invoiceninja`, `gitea`, `mysql`, etc.).
-2. **Invoice Ninja Storage**:
+   - `database/freescout_<timestamp>.sql.gz`: Dedicated single-transaction gzip dump of the `freescout` database (if exists).
+   - `database/docuseal_<timestamp>.sql.gz`: Dedicated single-transaction gzip dump of the `docuseal` database (if exists).
+   - `database/all_databases_<timestamp>.sql.gz`: Full dump of all databases across the MariaDB instance (`invoiceninja`, `freescout`, `docuseal`, `gitea`, `mysql`, etc.).
+2. **Persistent Application Storage**:
    - `storage/invoiceninja_storage_<timestamp>.tar.gz`: Persistent files, company logos, documents, and invoice PDFs from `/var/www/html/storage` (excluding ephemeral framework caches, views, and session data).
+   - `storage/freescout_data_<timestamp>.tar.gz`: FreeScout mailbox attachments, application files, and custom modules.
+   - `storage/docuseal_data_<timestamp>.tar.gz`: DocuSeal persistent signed documents, uploaded templates, and signature assets.
 3. **Application Configurations & Scripts**:
    - `configs/server_configs_<timestamp>.tar.gz`: All `.env` environment files, `docker-compose.yml` definitions, `Caddyfile`, Nginx vhost configs, and deployment scripts (`scripts/`).
 4. **Platform & Application States**:
@@ -618,6 +655,21 @@ docker restart openwa
 ```bash
 # Reset Uptime Kuma administrator credentials or 2FA via emergency helper
 docker exec -it uptime_kuma node extra/reset-password.js
+```
+
+#### DocuSeal (`docuseal`)
+```bash
+# View DocuSeal container logs
+docker logs --tail 100 docuseal
+
+# Follow live container output
+docker logs -f docuseal
+
+# Inspect persistent document and signature storage
+docker exec docuseal ls -la /data
+
+# Run interactive shell inside container
+docker exec -it docuseal /bin/sh
 ```
 
 ### 8.7 Host VPS Maintenance & Disk Pruning

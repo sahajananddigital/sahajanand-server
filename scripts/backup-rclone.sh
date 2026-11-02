@@ -198,6 +198,18 @@ if docker exec -i "${MARIADB_CONTAINER}" mariadb -u root -p"${MARIADB_ROOT_PASSW
     fi
 fi
 
+# DocuSeal dedicated dump (if exists)
+if docker exec -i "${MARIADB_CONTAINER}" mariadb -u root -p"${MARIADB_ROOT_PASSWORD}" -e "SHOW DATABASES LIKE 'docuseal';" | grep -q "docuseal"; then
+    DS_DB_FILE="${STAGING_DIR}/database/docuseal_${TIMESTAMP}.sql.gz"
+    log_info "  -> Dumping 'docuseal' database..."
+    docker exec "${MARIADB_CONTAINER}" mariadb-dump \
+        -u root -p"${MARIADB_ROOT_PASSWORD}" \
+        --single-transaction --quick docuseal | gzip -9 > "${DS_DB_FILE}"
+    if [ -s "${DS_DB_FILE}" ]; then
+        log_success "  [✓] docuseal.sql.gz ($(du -h "${DS_DB_FILE}" | cut -f1))"
+    fi
+fi
+
 # Full instance dump (all databases)
 ALL_DB_FILE="${STAGING_DIR}/database/all_databases_${TIMESTAMP}.sql.gz"
 log_info "  -> Dumping all databases (--all-databases)..."
@@ -243,6 +255,18 @@ if [ "${DB_ONLY}" = false ]; then
             log_success "  [✓] freescout_data.tar.gz ($(du -h "${FS_STORAGE_FILE}" | cut -f1))"
         else
             rm -f "${FS_STORAGE_FILE}"
+        fi
+    fi
+
+    # DocuSeal Data (if running)
+    if docker ps --format '{{.Names}}' | grep -q "^docuseal$"; then
+        DOCUSEAL_FILE="${STAGING_DIR}/storage/docuseal_data_${TIMESTAMP}.tar.gz"
+        log_info "Archiving DocuSeal persistent documents & signatures..."
+        docker run --rm -v docuseal_docuseal_data:/data:ro alpine tar -czf - -C /data . > "${DOCUSEAL_FILE}" 2>/dev/null || true
+        if [ -s "${DOCUSEAL_FILE}" ]; then
+            log_success "  [✓] docuseal_data.tar.gz ($(du -h "${DOCUSEAL_FILE}" | cut -f1))"
+        else
+            rm -f "${DOCUSEAL_FILE}"
         fi
     fi
 

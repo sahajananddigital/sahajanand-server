@@ -1,0 +1,22 @@
+services:
+  docuseal:
+    image: docuseal/docuseal:latest
+    container_name: docuseal
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - docuseal_data:/data
+    networks:
+      - proxy_net
+      - db_net
+    mem_limit: 384m
+
+networks:
+  proxy_net:
+    external: true
+  db_net:
+    external: true
+
+volumes:
+  docuseal_data:
