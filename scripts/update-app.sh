@@ -38,6 +38,7 @@ Supported Targets:
   uptime-kuma     Uptime Kuma monitoring service
   openwa          OpenWA WhatsApp gateway
   docuseal        DocuSeal document signing & e-signatures
+  n8n             n8n workflow automation & integrations
   all             Pull and update all running stacks sequentially
 
 Example:
@@ -96,6 +97,9 @@ case "${TARGET}" in
     docuseal|sign)
         update_stack "DocuSeal" "${REPO_ROOT}/apps/docuseal"
         ;;
+    n8n|automate)
+        update_stack "n8n" "${REPO_ROOT}/apps/n8n"
+        ;;
     all)
         log_info "Updating all infrastructure and application stacks..."
         update_stack "Core Infrastructure" "${REPO_ROOT}/core-infra"
@@ -105,6 +109,7 @@ case "${TARGET}" in
         update_stack "Invoice Ninja" "${REPO_ROOT}/apps/invoiceninja"
         update_stack "FreeScout" "${REPO_ROOT}/apps/freescout"
         update_stack "DocuSeal" "${REPO_ROOT}/apps/docuseal"
+        update_stack "n8n" "${REPO_ROOT}/apps/n8n"
         log_success "All application stacks updated successfully!"
         ;;
     *)

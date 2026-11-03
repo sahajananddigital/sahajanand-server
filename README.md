@@ -50,7 +50,8 @@ This setup decouples the core platform services from individual application stac
 | **Invoice Ninja** | `512MB` | Open-source invoicing, billing & payments on shared MariaDB + Redis |
 | **FreeScout** | `350MB` | Lightweight help desk & shared mailbox on shared MariaDB |
 | **DocuSeal** | `384MB` | Open-source document signing & digital signature platform on shared MariaDB |
-| **Host OS & Buffers** | `~1.5GB` | Kernel, page cache, headroom for new apps |
+| **n8n** | `350MB` | Lightweight visual workflow automation & integrations (embedded SQLite) |
+| **Host OS & Buffers** | `~1.2GB` | Kernel, page cache, headroom for new apps |
 
 ---
 
@@ -303,22 +304,21 @@ FreeScout is a lightweight, open-source help desk and shared inbox (Zendesk / He
 
 [DocuSeal](https://www.docuseal.com/) is an open-source, mobile-friendly document signing and digital signature platform (DocuSign / PandaDoc alternative) featuring PDF form building, automated signing requests, and secure audit trails.
 
-1. **Provision DocuSeal database on `shared_mariadb`**:
-   ```bash
-   ./scripts/create-db.sh docuseal "YourSecureDocuSealDbPassword"
-   ```
-2. **Configure environment**:
+By default, it runs with high-performance embedded SQLite stored persistently on `docuseal_data:/data/docuseal/db.sqlite3` with zero external dependencies.
+
+1. **Configure environment**:
    ```bash
    cp apps/docuseal/.env.example apps/docuseal/.env # If not already created by init-server.sh
    nano apps/docuseal/.env
    ```
-   Set `DATABASE_URL` with your database password, verify `HOST`, and ensure `SECRET_KEY_BASE` is configured (generate with `openssl rand -hex 64`).
-3. **Launch the stack**:
+   Verify `HOST` domain. `SECRET_KEY_BASE` is pre-configured.
+   *(Optional: If you prefer using `shared_mariadb` instead of SQLite, provision a database via `./scripts/create-db.sh docuseal "Password"` and set `DATABASE_URL=trilogy://docuseal:Password@shared_mariadb:3306/docuseal`)*.
+2. **Launch the stack**:
    ```bash
    cd apps/docuseal
    docker compose up -d
    ```
-4. **Follow initialization**:
+3. **Follow initialization**:
    ```bash
    docker logs -f docuseal
    ```
@@ -330,6 +330,32 @@ FreeScout is a lightweight, open-source help desk and shared inbox (Zendesk / He
 | **Local Environment** | [http://sign.localhost](http://sign.localhost) or [http://docuseal.localhost](http://docuseal.localhost) | Created on first web visit |
 | **Production Environment** | `https://sign.app.sahajananddigital.in` or `https://docuseal.app.sahajananddigital.in` | Created on first web visit |
 
+### Step 7: Configure & Start n8n (Workflow Automation & Integrations)
+
+[n8n](https://n8n.io/) is an extendable visual workflow automation tool (Zapier / Make alternative) used to connect webhooks and orchestrate automated actions between Invoice Ninja, DocuSeal, OpenWA WhatsApp, FreeScout, and Gitea. It runs self-contained with embedded SQLite and automatic 7-day execution log pruning.
+
+1. **Configure environment**:
+   ```bash
+   cp apps/n8n/.env.example apps/n8n/.env # If not already created by init-server.sh
+   nano apps/n8n/.env
+   ```
+2. **Launch the stack**:
+   ```bash
+   cd apps/n8n
+   docker compose up -d
+   ```
+3. **Follow initialization**:
+   ```bash
+   docker logs -f n8n
+   ```
+
+#### Access & Authentication
+
+| Interface | URL | Default Credentials |
+| :--- | :--- | :--- |
+| **Local Environment** | [http://automate.localhost](http://automate.localhost) or [http://n8n.localhost](http://n8n.localhost) | Created on first web visit |
+| **Production Environment** | `https://automate.app.sahajananddigital.in` or `https://n8n.app.sahajananddigital.in` | Created on first web visit |
+
 ### Local Testing URLs
 When running locally on Docker Desktop, macOS and all modern browsers resolve any `*.localhost` domain to `127.0.0.1` automatically without editing `/etc/hosts`:
 - **Gitea**: [http://git.localhost](http://git.localhost)
@@ -338,6 +364,7 @@ When running locally on Docker Desktop, macOS and all modern browsers resolve an
 - **Invoice Ninja**: [http://erp.localhost](http://erp.localhost) or [http://invoice.localhost](http://invoice.localhost)
 - **FreeScout**: [http://help.localhost](http://help.localhost)
 - **DocuSeal**: [http://sign.localhost](http://sign.localhost) or [http://docuseal.localhost](http://docuseal.localhost)
+- **n8n**: [http://automate.localhost](http://automate.localhost) or [http://n8n.localhost](http://n8n.localhost)
 
 ---
 
@@ -386,6 +413,7 @@ A comprehensive backup script [`scripts/backup-rclone.sh`](file:///Users/multido
    - `storage/invoiceninja_storage_<timestamp>.tar.gz`: Persistent files, company logos, documents, and invoice PDFs from `/var/www/html/storage` (excluding ephemeral framework caches, views, and session data).
    - `storage/freescout_data_<timestamp>.tar.gz`: FreeScout mailbox attachments, application files, and custom modules.
    - `storage/docuseal_data_<timestamp>.tar.gz`: DocuSeal persistent signed documents, uploaded templates, and signature assets.
+   - `storage/n8n_data_<timestamp>.tar.gz`: n8n workflows, encrypted credentials, and embedded SQLite database.
 3. **Application Configurations & Scripts**:
    - `configs/server_configs_<timestamp>.tar.gz`: All `.env` environment files, `docker-compose.yml` definitions, `Caddyfile`, Nginx vhost configs, and deployment scripts (`scripts/`).
 4. **Platform & Application States**:
@@ -670,6 +698,21 @@ docker exec docuseal ls -la /data
 
 # Run interactive shell inside container
 docker exec -it docuseal /bin/sh
+```
+
+#### n8n (`n8n`)
+```bash
+# View n8n workflow execution and application logs
+docker logs --tail 100 n8n
+
+# Follow live container output
+docker logs -f n8n
+
+# Inspect persistent storage directory (SQLite DB, workflow JSONs)
+docker exec n8n ls -la /home/node/.n8n
+
+# Export all workflows to a local JSON file
+docker exec -it n8n n8n export:workflow --all --output=/home/node/.n8n/workflows_export.json
 ```
 
 ### 8.7 Host VPS Maintenance & Disk Pruning

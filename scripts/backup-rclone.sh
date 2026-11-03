@@ -270,6 +270,18 @@ if [ "${DB_ONLY}" = false ]; then
         fi
     fi
 
+    # n8n Data (if running)
+    if docker ps --format '{{.Names}}' | grep -q "^n8n$"; then
+        N8N_FILE="${STAGING_DIR}/storage/n8n_data_${TIMESTAMP}.tar.gz"
+        log_info "Archiving n8n workflows, credentials & SQLite data..."
+        docker run --rm -v n8n_n8n_data:/data:ro alpine tar -czf - -C /data . > "${N8N_FILE}" 2>/dev/null || true
+        if [ -s "${N8N_FILE}" ]; then
+            log_success "  [✓] n8n_data.tar.gz ($(du -h "${N8N_FILE}" | cut -f1))"
+        else
+            rm -f "${N8N_FILE}"
+        fi
+    fi
+
     # OpenWA Data (if running and not skipped)
     if [ "${SKIP_OPENWA}" = false ] && docker ps --format '{{.Names}}' | grep -q "^openwa$"; then
         OPENWA_FILE="${STAGING_DIR}/storage/openwa_data_${TIMESTAMP}.tar.gz"

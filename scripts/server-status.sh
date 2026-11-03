@@ -105,6 +105,7 @@ check_app_row "Gitea Git Server" "gitea" "http://git.localhost"
 check_app_row "Uptime Kuma" "uptime_kuma" "http://status.localhost"
 check_app_row "OpenWA Gateway" "openwa" "http://wa.localhost"
 check_app_row "DocuSeal e-Sign" "docuseal" "http://sign.localhost"
+check_app_row "n8n Automation" "n8n" "http://automate.localhost"
 echo ""
 
 # 4. Memory Budget & Utilization

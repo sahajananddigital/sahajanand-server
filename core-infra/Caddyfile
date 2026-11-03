@@ -47,3 +47,10 @@ sign.app.sahajananddigital.in, docuseal.app.sahajananddigital.in, sign.localhost
 	reverse_proxy docuseal:3000
 }
 
+# n8n (Workflow Automation & Integrations)
+automate.app.sahajananddigital.in, n8n.app.sahajananddigital.in, automate.localhost, http://automate.localhost, n8n.localhost, http://n8n.localhost {
+	encode zstd gzip
+	reverse_proxy n8n:5678
+}
+
+
