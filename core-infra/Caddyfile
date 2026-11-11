@@ -52,5 +52,3 @@ automate.app.sahajananddigital.in, n8n.app.sahajananddigital.in, automate.localh
 	encode zstd gzip
 	reverse_proxy n8n:5678
 }
-
-
